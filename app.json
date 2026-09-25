@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "Couple Chess",
+    "slug": "couple-chess",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "couplechess",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.couplechess.mobile"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E8F0E4",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "app.couplechess.mobile",
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-font"
+    ]
+  }
+}
