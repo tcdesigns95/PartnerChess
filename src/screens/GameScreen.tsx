@@ -18,7 +18,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Chess } from 'chess.js';
 import { BackButton } from '../components/BackButton';
 import { ChessBoard } from '../components/ChessBoard';
-import { CapturedPiecesRail } from '../components/CapturedPiecesRail';
+import { CapturedSideColumn } from '../components/CapturedSideColumn';
 import { ChatPanel } from '../components/ChatPanel';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
 import { getSocket, buildInviteLink } from '../lib/socket';
@@ -36,6 +36,7 @@ export function GameScreen({ navigation }: Props) {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [inviteLink, setInviteLink] = useState('');
+  const [boardAreaWidth, setBoardAreaWidth] = useState(280);
   const sessionRef = useRef<Session | null>(null);
 
   const applyGame = useCallback((g: PublicGame) => {
@@ -279,6 +280,8 @@ export function GameScreen({ navigation }: Props) {
   const myTurn = game.status === 'active' && game.turn === session.color;
   const opponent =
     session.color === 'w' ? game.players.b?.name : game.players.w?.name;
+  const sideWidth = 52;
+  const boardSize = Math.max(180, boardAreaWidth - sideWidth - 8);
 
   return (
     <SafeAreaView
@@ -388,25 +391,31 @@ export function GameScreen({ navigation }: Props) {
           </Text>
         </Pressable>
 
-        <CapturedPiecesRail
-          fen={game.fen}
-          lostBy={session.color}
-          label="They took"
-        />
-
-        <ChessBoard
-          fen={game.fen}
-          orientation={session.color}
-          interactive={myTurn}
-          lastMove={game.lastMove}
-          onMove={onMove}
-        />
-
-        <CapturedPiecesRail
-          fen={game.fen}
-          lostBy={session.color === 'w' ? 'b' : 'w'}
-          label="You took"
-        />
+        <View
+          style={styles.boardRow}
+          onLayout={(e) => {
+            const w = Math.floor(e.nativeEvent.layout.width);
+            if (w > 0) setBoardAreaWidth(w);
+          }}
+        >
+          <View style={[styles.boardFlex, { width: boardSize }]}>
+            <ChessBoard
+              fen={game.fen}
+              orientation={session.color}
+              interactive={myTurn}
+              lastMove={game.lastMove}
+              onMove={onMove}
+            />
+          </View>
+          <View style={{ height: boardSize, width: sideWidth }}>
+            <CapturedSideColumn
+              fen={game.fen}
+              myColor={session.color}
+              width={sideWidth}
+              tileSize={40}
+            />
+          </View>
+        </View>
 
         {!!error && (
           <Text
@@ -496,6 +505,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 12,
     padding: 12,
+  },
+  boardRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    width: '100%',
+  },
+  boardFlex: {
+    flexGrow: 0,
+    flexShrink: 0,
   },
   actions: {
     flexDirection: 'row',
