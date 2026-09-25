@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -36,11 +37,21 @@ export function HomeScreen({ navigation }: Props) {
     setConnected(socket.connected);
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
+
+    // iMessage / shared invite links: https://…/?code=ABC123
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
+      if (code) {
+        navigation.navigate('Join', { code: code.toUpperCase() });
+      }
+    }
+
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
     };
-  }, []);
+  }, [navigation]);
 
   const createGame = () => {
     const trimmed = name.trim() || 'You';

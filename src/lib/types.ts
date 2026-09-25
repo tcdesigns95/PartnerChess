@@ -37,7 +37,7 @@ export type Session = {
 
 export type RootStackParamList = {
   Home: undefined;
-  Join: undefined;
+  Join: { code?: string } | undefined;
   Game: { resume?: boolean } | undefined;
   Themes: undefined;
 };

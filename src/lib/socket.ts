@@ -1,10 +1,21 @@
 import { io, type Socket } from 'socket.io-client';
+import { Platform } from 'react-native';
 import type { PlayerColor, PublicGame, ChatMessage } from './types';
 
-const DEFAULT_URL =
-  process.env.EXPO_PUBLIC_SOCKET_URL?.trim() ||
-  // Web on same machine → local server. Native devices should set EXPO_PUBLIC_SOCKET_URL.
-  (typeof window !== 'undefined' ? 'http://localhost:3001' : 'http://localhost:3001');
+function resolveSocketUrl(): string {
+  const fromEnv = process.env.EXPO_PUBLIC_SOCKET_URL?.trim();
+  if (fromEnv) return fromEnv.replace(/\/$/, '');
+
+  // Same-origin through the public gateway / hosted deploy (web).
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin) {
+    const { origin, hostname } = window.location;
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      return origin;
+    }
+  }
+
+  return 'http://localhost:3001';
+}
 
 type ClientToServer = {
   createGame: (
@@ -40,14 +51,18 @@ type ServerToClient = {
 };
 
 let socket: Socket<ServerToClient, ClientToServer> | null = null;
+let boundUrl: string | null = null;
 
 export function getSocketUrl() {
-  return DEFAULT_URL;
+  return resolveSocketUrl();
 }
 
 export function getSocket() {
-  if (!socket) {
-    socket = io(DEFAULT_URL, {
+  const url = resolveSocketUrl();
+  if (!socket || boundUrl !== url) {
+    if (socket) socket.disconnect();
+    boundUrl = url;
+    socket = io(url, {
       autoConnect: true,
       transports: ['websocket', 'polling'],
       reconnection: true,
@@ -56,4 +71,15 @@ export function getSocket() {
     });
   }
   return socket;
+}
+
+/** Public invite URL for iMessage / Messages. */
+export function buildInviteLink(code: string, baseUrl?: string): string {
+  const base =
+    baseUrl ||
+    (typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : process.env.EXPO_PUBLIC_APP_URL?.trim()) ||
+    'http://localhost:8081';
+  return `${base.replace(/\/$/, '')}/?code=${encodeURIComponent(code)}`;
 }

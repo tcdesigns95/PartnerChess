@@ -16,7 +16,7 @@ import { BackButton } from '../components/BackButton';
 import { ChessBoard } from '../components/ChessBoard';
 import { ChatPanel } from '../components/ChatPanel';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
-import { getSocket } from '../lib/socket';
+import { getSocket, buildInviteLink } from '../lib/socket';
 import { clearSession, loadSession } from '../lib/session';
 import type { ChatMessage, PublicGame, RootStackParamList, Session } from '../lib/types';
 
@@ -30,6 +30,7 @@ export function GameScreen({ navigation }: Props) {
   const [status, setStatus] = useState('Loading match…');
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [inviteLink, setInviteLink] = useState('');
 
   const attachListeners = useCallback(() => {
     const socket = getSocket();
@@ -89,9 +90,11 @@ export function GameScreen({ navigation }: Props) {
 
   const copyCode = async () => {
     if (!game?.code) return;
-    await Clipboard.setStringAsync(game.code);
+    const link = buildInviteLink(game.code);
+    setInviteLink(link);
+    await Clipboard.setStringAsync(link);
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const onMove = (from: string, to: string, promotion?: string) => {
@@ -262,7 +265,7 @@ export function GameScreen({ navigation }: Props) {
               textTransform: 'uppercase',
             }}
           >
-            Invite code · tap to copy
+            Invite link · tap to copy for iMessage
           </Text>
           <Text
             style={{
@@ -281,8 +284,11 @@ export function GameScreen({ navigation }: Props) {
               fontFamily: fontFamilyFor(theme, 'body'),
               marginTop: 2,
             }}
+            numberOfLines={2}
           >
-            {copied ? 'Copied!' : 'Send this to your partner'}
+            {copied
+              ? 'Link copied — paste into Messages'
+              : inviteLink || 'Copies a join link + code'}
           </Text>
         </Pressable>
 

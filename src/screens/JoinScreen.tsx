@@ -17,16 +17,22 @@ import type { RootStackParamList } from '../lib/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Join'>;
 
-export function JoinScreen({ navigation }: Props) {
+export function JoinScreen({ navigation, route }: Props) {
   const { theme } = useTheme();
   const [name, setName] = useState('');
-  const [code, setCode] = useState('');
+  const [code, setCode] = useState((route.params?.code || '').toUpperCase());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     void loadDisplayName().then(setName);
   }, []);
+
+  useEffect(() => {
+    if (route.params?.code) {
+      setCode(route.params.code.toUpperCase());
+    }
+  }, [route.params?.code]);
 
   const join = () => {
     const trimmedName = name.trim() || 'You';
