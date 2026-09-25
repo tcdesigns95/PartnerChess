@@ -11,28 +11,30 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
+import { ChessPiece } from '../components/ChessPiece';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
-import { getSocket, getSocketUrl } from '../lib/socket';
+import { getSocket } from '../lib/socket';
 import { loadDisplayName, loadSession, saveDisplayName, saveSession } from '../lib/session';
 import type { RootStackParamList } from '../lib/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
 export function HomeScreen({ navigation }: Props) {
-  const { theme } = useTheme();
+  const { theme, setThemeId } = useTheme();
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [hasSession, setHasSession] = useState(false);
   const [connected, setConnected] = useState(false);
+
+  useEffect(() => {
+    void setThemeId('ink');
+  }, [setThemeId]);
 
   useEffect(() => {
     void (async () => {
       setName(await loadDisplayName());
       const existing = await loadSession();
-      setHasSession(!!existing);
 
-      // Invite link join takes priority
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
         const params = new URLSearchParams(window.location.search);
         const code = params.get('code');
@@ -42,7 +44,6 @@ export function HomeScreen({ navigation }: Props) {
         }
       }
 
-      // Auto stay in / return to active match when opening the app
       if (existing) {
         navigation.navigate('Game', { resume: true });
       }
@@ -53,19 +54,16 @@ export function HomeScreen({ navigation }: Props) {
     setConnected(socket.connected);
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
-
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
     };
   }, [navigation]);
 
-  // If user opens Home while a match is saved, put them back in the game
   useEffect(() => {
     const unsub = navigation.addListener('focus', () => {
       void (async () => {
         const existing = await loadSession();
-        setHasSession(!!existing);
         if (!existing) return;
         if (Platform.OS === 'web' && typeof window !== 'undefined') {
           const code = new URLSearchParams(window.location.search).get('code');
@@ -95,82 +93,40 @@ export function HomeScreen({ navigation }: Props) {
         code: res.game.code,
         name: trimmed,
       });
-      setHasSession(true);
       navigation.navigate('Game');
     });
   };
 
   return (
-    <SafeAreaView
-      style={[styles.safe, { backgroundColor: theme.colors.background }]}
-    >
-      <StatusBar style="auto" />
-      <View
-        style={[
-          styles.hero,
-          {
-            backgroundColor: theme.colors.surface,
-            borderColor: theme.colors.border,
-          },
-        ]}
-      >
-        <View
-          style={[
-            styles.glow,
-            { backgroundColor: theme.colors.accent, opacity: 0.12 },
-          ]}
-        />
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]}>
+      <StatusBar style="dark" />
+      <View style={styles.hero}>
+        <View style={styles.pieceRow}>
+          <ChessPiece type="k" color="b" size={36} />
+          <ChessPiece type="q" color="b" size={36} />
+          <ChessPiece type="b" color="b" size={36} />
+          <ChessPiece type="n" color="b" size={36} />
+          <ChessPiece type="r" color="b" size={36} />
+          <ChessPiece type="p" color="b" size={36} />
+        </View>
         <Text
           style={[
             styles.brand,
             {
-              color: theme.colors.accent,
+              color: theme.colors.text,
               fontFamily: fontFamilyFor(theme, 'display', 'bold'),
             },
           ]}
         >
           Couple Chess
         </Text>
-        <Text
-          style={[
-            styles.tagline,
-            {
-              color: theme.colors.text,
-              fontFamily: fontFamilyFor(theme, 'display'),
-            },
-          ]}
-        >
-          Your board. Your chat. One live match.
-        </Text>
-        <Text
-          style={[
-            styles.sub,
-            {
-              color: theme.colors.textMuted,
-              fontFamily: fontFamilyFor(theme, 'body'),
-            },
-          ]}
-        >
-          Create a room, send the code, play without interruptions.
-        </Text>
       </View>
 
       <View style={styles.form}>
-        <Text
-          style={[
-            styles.label,
-            {
-              color: theme.colors.textMuted,
-              fontFamily: fontFamilyFor(theme, 'body', 'bold'),
-            },
-          ]}
-        >
-          Your name
-        </Text>
         <TextInput
           value={name}
           onChangeText={setName}
-          placeholder="e.g. Alex"
+          placeholder="Your name"
           placeholderTextColor={theme.colors.textMuted}
           style={[
             styles.input,
@@ -187,85 +143,39 @@ export function HomeScreen({ navigation }: Props) {
           onPress={createGame}
           disabled={busy}
           style={({ pressed }) => [
-            styles.primary,
+            styles.play,
             {
-              backgroundColor: theme.colors.accent,
+              backgroundColor: theme.colors.surface,
+              borderColor: theme.colors.text,
               opacity: pressed || busy ? 0.75 : 1,
             },
           ]}
         >
           {busy ? (
-            <ActivityIndicator color={theme.colors.accentText} />
+            <ActivityIndicator color={theme.colors.text} />
           ) : (
             <Text
               style={{
-                color: theme.colors.accentText,
+                color: theme.colors.text,
                 fontFamily: fontFamilyFor(theme, 'body', 'bold'),
-                fontSize: 17,
+                fontSize: 18,
+                letterSpacing: 2,
               }}
             >
-              Start a live match
+              PLAY GAME
             </Text>
           )}
         </Pressable>
 
-        <Pressable
-          onPress={() => navigation.navigate('Join')}
-          style={({ pressed }) => [
-            styles.secondary,
-            {
-              borderColor: theme.colors.border,
-              backgroundColor: theme.colors.surface,
-              opacity: pressed ? 0.75 : 1,
-            },
-          ]}
-        >
+        <Pressable onPress={() => navigation.navigate('Join')} style={styles.linkBtn}>
           <Text
             style={{
-              color: theme.colors.text,
-              fontFamily: fontFamilyFor(theme, 'body', 'bold'),
-              fontSize: 16,
-            }}
-          >
-            Join with a code
-          </Text>
-        </Pressable>
-
-        {hasSession && (
-          <Pressable
-            onPress={() => navigation.navigate('Game', { resume: true })}
-            style={({ pressed }) => [
-              styles.secondary,
-              {
-                borderColor: theme.colors.accent,
-                backgroundColor: theme.colors.surface,
-                opacity: pressed ? 0.75 : 1,
-              },
-            ]}
-          >
-            <Text
-              style={{
-                color: theme.colors.accent,
-                fontFamily: fontFamilyFor(theme, 'body', 'bold'),
-                fontSize: 16,
-              }}
-            >
-              Resume current match
-            </Text>
-          </Pressable>
-        )}
-
-        <Pressable onPress={() => navigation.navigate('Themes')}>
-          <Text
-            style={{
-              textAlign: 'center',
-              marginTop: 8,
               color: theme.colors.textMuted,
-              fontFamily: fontFamilyFor(theme, 'body'),
-              textDecorationLine: 'underline',
+              fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+              letterSpacing: 1,
             }}
           >
-            Change look & theme
+            JOIN WITH CODE
           </Text>
         </Pressable>
 
@@ -273,9 +183,8 @@ export function HomeScreen({ navigation }: Props) {
           <Text
             style={{
               color: theme.colors.danger,
-              marginTop: 10,
-              fontFamily: fontFamilyFor(theme, 'body'),
               textAlign: 'center',
+              fontFamily: fontFamilyFor(theme, 'body'),
             }}
           >
             {error}
@@ -284,14 +193,14 @@ export function HomeScreen({ navigation }: Props) {
 
         <Text
           style={{
-            marginTop: 18,
+            marginTop: 20,
             textAlign: 'center',
             color: theme.colors.textMuted,
             fontFamily: fontFamilyFor(theme, 'body'),
-            fontSize: 12,
+            fontSize: 11,
           }}
         >
-          {connected ? 'Connected' : 'Connecting…'} · {getSocketUrl()}
+          {connected ? '● live' : '○ connecting'}
         </Text>
       </View>
     </SafeAreaView>
@@ -299,63 +208,40 @@ export function HomeScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, padding: 20 },
+  safe: { flex: 1, padding: 24, justifyContent: 'space-between' },
   hero: {
-    borderWidth: 1,
-    borderRadius: 20,
-    padding: 24,
-    overflow: 'hidden',
-    marginTop: 8,
-    minHeight: 220,
-    justifyContent: 'flex-end',
+    marginTop: 48,
+    alignItems: 'center',
+    gap: 18,
   },
-  glow: {
-    position: 'absolute',
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    top: -80,
-    right: -60,
+  pieceRow: {
+    flexDirection: 'row',
+    gap: 4,
+    alignItems: 'flex-end',
   },
   brand: {
-    fontSize: 42,
-    marginBottom: 8,
-  },
-  tagline: {
-    fontSize: 22,
-    lineHeight: 28,
-    marginBottom: 8,
-  },
-  sub: {
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 40,
+    letterSpacing: -0.5,
   },
   form: {
-    marginTop: 28,
-    gap: 10,
-  },
-  label: {
-    fontSize: 12,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
+    gap: 12,
+    marginBottom: 24,
   },
   input: {
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     fontSize: 16,
   },
-  primary: {
-    marginTop: 8,
-    borderRadius: 12,
-    paddingVertical: 14,
+  play: {
+    borderWidth: 2,
+    borderRadius: 14,
+    paddingVertical: 16,
     alignItems: 'center',
   },
-  secondary: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 13,
+  linkBtn: {
+    paddingVertical: 12,
     alignItems: 'center',
   },
 });

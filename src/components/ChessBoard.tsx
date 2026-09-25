@@ -178,6 +178,7 @@ export function ChessBoard({
                           ? theme.colors.darkSquare
                           : theme.colors.lightSquare,
                         fontFamily: fontFamilyFor(theme, 'body'),
+                        opacity: 0.55,
                       },
                     ]}
                   >
@@ -195,6 +196,7 @@ export function ChessBoard({
                           ? theme.colors.darkSquare
                           : theme.colors.lightSquare,
                         fontFamily: fontFamilyFor(theme, 'body'),
+                        opacity: 0.55,
                       },
                     ]}
                   >

@@ -1,10 +1,10 @@
 /**
  * Chess app visual themes — board, pieces, chrome, and chat.
- * Swap `activeThemeId` (via themeStorage) to restyle the whole UI.
+ * Default is the user's black & white icon theme ("Ink").
  */
 
-export type PieceSetId = 'classic' | 'modern' | 'walnut';
-export type BoardSkinId = 'maple' | 'slate' | 'midnight' | 'blush';
+export type PieceSetId = 'classic' | 'modern' | 'walnut' | 'ink';
+export type BoardSkinId = 'maple' | 'slate' | 'midnight' | 'blush' | 'ink';
 
 /** Optional per-user overrides layered on top of a named theme. */
 export type CustomStyles = {
@@ -43,6 +43,32 @@ export type AppTheme = {
 };
 
 export const themes: Record<string, AppTheme> = {
+  ink: {
+    id: 'ink',
+    name: 'Ink',
+    boardSkin: 'ink',
+    pieceSet: 'ink',
+    colors: {
+      background: '#F3EFE7',
+      surface: '#FAF7F1',
+      text: '#121212',
+      textMuted: '#6B6560',
+      accent: '#121212',
+      accentText: '#FAF7F1',
+      danger: '#8B1E1E',
+      lightSquare: '#EDE6DA',
+      darkSquare: '#5C564E',
+      lastMove: 'rgba(18, 18, 18, 0.18)',
+      chatBubbleMine: '#121212',
+      chatBubbleTheirs: '#E5DFD4',
+      chatText: '#121212',
+      border: '#D4CEC3',
+    },
+    fonts: {
+      display: 'Space Grotesk',
+      body: 'IBM Plex Sans',
+    },
+  },
   meadow: {
     id: 'meadow',
     name: 'Meadow',
@@ -123,7 +149,7 @@ export const themes: Record<string, AppTheme> = {
   },
 };
 
-export const DEFAULT_THEME_ID = 'meadow';
+export const DEFAULT_THEME_ID = 'ink';
 
 export function getTheme(themeId: string): AppTheme {
   return themes[themeId] ?? themes[DEFAULT_THEME_ID];

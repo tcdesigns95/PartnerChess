@@ -1,26 +1,23 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { SilhouettePieceTile } from './SilhouettePieceTile';
 import { getCapturedPieces } from '../lib/captures';
 import type { PieceColor } from './ChessPiece';
-import { useTheme, fontFamilyFor } from '../context/ThemeContext';
+import { useTheme } from '../context/ThemeContext';
 
 type CapturedSideColumnProps = {
   fen: string;
-  /** Your color — top shows what they took from you; bottom what you took. */
   myColor: PieceColor;
   width?: number;
   tileSize?: number;
 };
 
-/**
- * Right-side capture column: top = they took, bottom = you took.
- */
+/** Right-side captures: top = they took, bottom = you took. No labels. */
 export function CapturedSideColumn({
   fen,
   myColor,
-  width = 52,
-  tileSize = 40,
+  width = 48,
+  tileSize = 36,
 }: CapturedSideColumnProps) {
   const { theme } = useTheme();
   const theyTook = getCapturedPieces(fen, myColor);
@@ -32,89 +29,39 @@ export function CapturedSideColumn({
         styles.column,
         {
           width,
-          backgroundColor: theme.colors.surface,
           borderColor: theme.colors.border,
+          backgroundColor: theme.colors.surface,
         },
       ]}
     >
-      <Text
-        style={[
-          styles.label,
-          {
-            color: theme.colors.textMuted,
-            fontFamily: fontFamilyFor(theme, 'body', 'bold'),
-          },
-        ]}
-      >
-        They
-      </Text>
       <ScrollView
         style={styles.half}
         contentContainerStyle={styles.stack}
         showsVerticalScrollIndicator={false}
       >
-        {theyTook.length === 0 ? (
-          <Text
-            style={{
-              color: theme.colors.textMuted,
-              fontSize: 10,
-              textAlign: 'center',
-              fontFamily: fontFamilyFor(theme, 'body'),
-            }}
-          >
-            —
-          </Text>
-        ) : (
-          theyTook.map((p) => (
-            <SilhouettePieceTile
-              key={p.key}
-              type={p.type}
-              color={p.color}
-              size={tileSize}
-            />
-          ))
-        )}
+        {theyTook.map((p) => (
+          <SilhouettePieceTile
+            key={p.key}
+            type={p.type}
+            color={p.color}
+            size={tileSize}
+          />
+        ))}
       </ScrollView>
-
       <View style={[styles.divider, { backgroundColor: theme.colors.border }]} />
-
-      <Text
-        style={[
-          styles.label,
-          {
-            color: theme.colors.textMuted,
-            fontFamily: fontFamilyFor(theme, 'body', 'bold'),
-          },
-        ]}
-      >
-        You
-      </Text>
       <ScrollView
         style={styles.half}
         contentContainerStyle={styles.stack}
         showsVerticalScrollIndicator={false}
       >
-        {youTook.length === 0 ? (
-          <Text
-            style={{
-              color: theme.colors.textMuted,
-              fontSize: 10,
-              textAlign: 'center',
-              fontFamily: fontFamilyFor(theme, 'body'),
-            }}
-          >
-            —
-          </Text>
-        ) : (
-          youTook.map((p) => (
-            <SilhouettePieceTile
-              key={p.key}
-              type={p.type}
-              color={p.color}
-              size={tileSize}
-            />
-          ))
-        )}
+        {youTook.map((p) => (
+          <SilhouettePieceTile
+            key={p.key}
+            type={p.type}
+            color={p.color}
+            size={tileSize}
+          />
+        ))}
       </ScrollView>
     </View>
   );
@@ -124,17 +71,11 @@ const styles = StyleSheet.create({
   column: {
     borderWidth: 1,
     borderRadius: 14,
-    paddingVertical: 8,
-    paddingHorizontal: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
     alignItems: 'center',
     flex: 1,
     height: '100%',
-  },
-  label: {
-    fontSize: 10,
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    marginBottom: 4,
   },
   half: {
     flex: 1,
@@ -142,12 +83,12 @@ const styles = StyleSheet.create({
   },
   stack: {
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 4,
+    gap: 4,
+    paddingVertical: 2,
   },
   divider: {
-    width: '80%',
+    width: '70%',
     height: 1,
-    marginVertical: 8,
+    marginVertical: 6,
   },
 });
