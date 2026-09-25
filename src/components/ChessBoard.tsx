@@ -7,7 +7,8 @@ import {
   View,
 } from 'react-native';
 import { Chess, type Square } from 'chess.js';
-import { FILES, RANKS, pieceGlyph } from '../lib/pieces';
+import { FILES, RANKS } from '../lib/pieces';
+import { ChessPiece } from './ChessPiece';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
 import type { PlayerColor } from '../lib/types';
 
@@ -133,24 +134,11 @@ export function ChessBoard({
                   />
                 )}
                 {piece && (
-                  <Text
-                    style={[
-                      styles.piece,
-                      {
-                        fontSize: squareSize * 0.72,
-                        // Same filled glyph for both; white = cream, black = ink
-                        color: piece.color === 'w' ? '#F5F0E6' : '#141414',
-                        textShadowColor:
-                          piece.color === 'w'
-                            ? 'rgba(0,0,0,0.55)'
-                            : 'rgba(255,255,255,0.2)',
-                        textShadowOffset: { width: 0, height: 1 },
-                        textShadowRadius: piece.color === 'w' ? 3 : 1,
-                      },
-                    ]}
-                  >
-                    {pieceGlyph(piece.color, piece.type, theme.pieceSet)}
-                  </Text>
+                  <ChessPiece
+                    type={piece.type}
+                    color={piece.color}
+                    size={squareSize * 0.9}
+                  />
                 )}
                 {colIndex === 0 && (
                   <Text
@@ -206,11 +194,6 @@ const styles = StyleSheet.create({
   square: {
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  piece: {
-    textAlign: 'center',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
   },
   targetDot: {
     position: 'absolute',
