@@ -29,7 +29,23 @@ export function HomeScreen({ navigation }: Props) {
   useEffect(() => {
     void (async () => {
       setName(await loadDisplayName());
-      setHasSession(!!(await loadSession()));
+      const existing = await loadSession();
+      setHasSession(!!existing);
+
+      // Invite link join takes priority
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get('code');
+        if (code) {
+          navigation.navigate('Join', { code: code.toUpperCase() });
+          return;
+        }
+      }
+
+      // Auto stay in / return to active match when opening the app
+      if (existing) {
+        navigation.navigate('Game', { resume: true });
+      }
     })();
     const socket = getSocket();
     const onConnect = () => setConnected(true);
@@ -38,19 +54,27 @@ export function HomeScreen({ navigation }: Props) {
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
 
-    // iMessage / shared invite links: https://…/?code=ABC123
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const code = params.get('code');
-      if (code) {
-        navigation.navigate('Join', { code: code.toUpperCase() });
-      }
-    }
-
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
     };
+  }, [navigation]);
+
+  // If user opens Home while a match is saved, put them back in the game
+  useEffect(() => {
+    const unsub = navigation.addListener('focus', () => {
+      void (async () => {
+        const existing = await loadSession();
+        setHasSession(!!existing);
+        if (!existing) return;
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          const code = new URLSearchParams(window.location.search).get('code');
+          if (code) return;
+        }
+        navigation.navigate('Game', { resume: true });
+      })();
+    });
+    return unsub;
   }, [navigation]);
 
   const createGame = () => {

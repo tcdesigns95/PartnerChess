@@ -342,11 +342,28 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
       return;
     }
     try {
-      const move = chess.move({
+      const moveOpts: {
+        from: Square;
+        to: Square;
+        promotion?: 'q' | 'r' | 'b' | 'n';
+      } = {
         from: payload.from as Square,
         to: payload.to as Square,
-        promotion: (payload.promotion as 'q' | 'r' | 'b' | 'n' | undefined) ?? 'q',
-      });
+      };
+      // Only attach promotion for actual pawn promotions — forcing 'q' breaks other moves.
+      if (payload.promotion) {
+        moveOpts.promotion = payload.promotion as 'q' | 'r' | 'b' | 'n';
+      } else {
+        const piece = chess.get(moveOpts.from);
+        if (
+          piece?.type === 'p' &&
+          ((piece.color === 'w' && moveOpts.to.endsWith('8')) ||
+            (piece.color === 'b' && moveOpts.to.endsWith('1')))
+        ) {
+          moveOpts.promotion = 'q';
+        }
+      }
+      const move = chess.move(moveOpts);
       if (!move) {
         cb({ ok: false, error: 'Illegal move' });
         return;

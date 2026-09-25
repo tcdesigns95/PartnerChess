@@ -1,7 +1,9 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
+  type AppStateStatus,
   Platform,
   Pressable,
   ScrollView,
@@ -11,13 +13,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
+import { Chess } from 'chess.js';
 import { BackButton } from '../components/BackButton';
 import { ChessBoard } from '../components/ChessBoard';
 import { ChatPanel } from '../components/ChatPanel';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
 import { getSocket, buildInviteLink } from '../lib/socket';
-import { clearSession, loadSession } from '../lib/session';
+import { clearSession, loadSession, saveSession } from '../lib/session';
 import type { ChatMessage, PublicGame, RootStackParamList, Session } from '../lib/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
@@ -31,62 +35,107 @@ export function GameScreen({ navigation }: Props) {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [inviteLink, setInviteLink] = useState('');
+  const sessionRef = useRef<Session | null>(null);
 
-  const attachListeners = useCallback(() => {
+  const applyGame = useCallback((g: PublicGame) => {
+    setGame(g);
+    setMessages(g.chat);
+    if (g.status === 'waiting') setStatus('Waiting for your partner…');
+    else if (g.status === 'finished') setStatus(g.result || 'Game over');
+    else setStatus(g.turn === 'w' ? "White's turn" : "Black's turn");
+  }, []);
+
+  const rejoin = useCallback(() => {
+    const s = sessionRef.current;
+    if (!s) return;
     const socket = getSocket();
-    const onGame = (g: PublicGame) => {
-      setGame(g);
-      setMessages(g.chat);
-      if (g.status === 'waiting') setStatus('Waiting for your partner…');
-      else if (g.status === 'finished') setStatus(g.result || 'Game over');
-      else setStatus(g.turn === 'w' ? "White's turn" : "Black's turn");
+    const doRejoin = () => {
+      socket.emit(
+        'rejoinGame',
+        { gameId: s.gameId, playerId: s.playerId },
+        (res) => {
+          if (!res.ok) {
+            setError(res.error);
+            return;
+          }
+          setError('');
+          applyGame(res.game);
+          void saveSession({ ...s, code: res.game.code });
+        },
+      );
     };
+    if (socket.connected) doRejoin();
+    else socket.once('connect', doRejoin);
+  }, [applyGame]);
+
+  useEffect(() => {
+    const socket = getSocket();
+    const onGame = (g: PublicGame) => applyGame(g);
     const onChat = (msg: ChatMessage) => {
       setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
     };
+    const onConnect = () => rejoin();
+
     socket.on('gameUpdated', onGame);
     socket.on('chatMessage', onChat);
+    socket.on('connect', onConnect);
+
     return () => {
       socket.off('gameUpdated', onGame);
       socket.off('chatMessage', onChat);
+      socket.off('connect', onConnect);
     };
-  }, []);
+  }, [applyGame, rejoin]);
 
   useEffect(() => {
-    let cleanup = () => {};
+    let cancelled = false;
     (async () => {
       const s = await loadSession();
+      if (cancelled) return;
       if (!s) {
         setError('No active match. Start or join one from home.');
         return;
       }
+      sessionRef.current = s;
       setSession(s);
-      cleanup = attachListeners();
-      const socket = getSocket();
-      const rejoin = () => {
-        socket.emit(
-          'rejoinGame',
-          { gameId: s.gameId, playerId: s.playerId },
-          (res) => {
-            if (!res.ok) {
-              setError(res.error);
-              return;
-            }
-            setGame(res.game);
-            setMessages(res.game.chat);
-            if (res.game.status === 'waiting') setStatus('Waiting for your partner…');
-            else if (res.game.status === 'finished')
-              setStatus(res.game.result || 'Game over');
-            else
-              setStatus(res.game.turn === 'w' ? "White's turn" : "Black's turn");
-          },
-        );
-      };
-      if (socket.connected) rejoin();
-      else socket.once('connect', rejoin);
+      rejoin();
     })();
-    return () => cleanup();
-  }, [attachListeners]);
+    return () => {
+      cancelled = true;
+    };
+  }, [rejoin]);
+
+  // Stay in the match when returning from background / other screens
+  useFocusEffect(
+    useCallback(() => {
+      rejoin();
+    }, [rejoin]),
+  );
+
+  useEffect(() => {
+    const onChange = (state: AppStateStatus) => {
+      if (state === 'active') rejoin();
+    };
+    const sub = AppState.addEventListener('change', onChange);
+
+    const onVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        rejoin();
+      }
+    };
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisible);
+      window.addEventListener('focus', onVisible);
+    }
+
+    return () => {
+      sub.remove();
+      if (Platform.OS === 'web' && typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisible);
+        window.removeEventListener('focus', onVisible);
+      }
+    };
+  }, [rejoin]);
 
   const copyCode = async () => {
     if (!game?.code) return;
@@ -99,6 +148,29 @@ export function GameScreen({ navigation }: Props) {
 
   const onMove = (from: string, to: string, promotion?: string) => {
     if (!session || !game) return;
+    // Optimistic board update so every piece feels responsive
+    try {
+      const draft = new Chess(game.fen);
+      const opts: { from: string; to: string; promotion?: string } = { from, to };
+      if (promotion) opts.promotion = promotion;
+      const local = draft.move(opts as Parameters<Chess['move']>[0]);
+      if (local) {
+        setGame({
+          ...game,
+          fen: draft.fen(),
+          lastMove: { from: local.from, to: local.to },
+          turn: draft.turn(),
+          isCheck: draft.isCheck(),
+          isCheckmate: draft.isCheckmate(),
+          isDraw: draft.isDraw(),
+          isStalemate: draft.isStalemate(),
+          status: draft.isGameOver() ? 'finished' : game.status,
+        });
+      }
+    } catch {
+      // server remains source of truth
+    }
+
     getSocket().emit(
       'makeMove',
       {
@@ -109,8 +181,13 @@ export function GameScreen({ navigation }: Props) {
         promotion,
       },
       (res) => {
-        if (!res.ok) setError(res.error);
-        else setError('');
+        if (!res.ok) {
+          setError(res.error);
+          rejoin();
+        } else {
+          setError('');
+          applyGame(res.game);
+        }
       },
     );
   };
@@ -136,7 +213,10 @@ export function GameScreen({ navigation }: Props) {
       );
     };
     if (Platform.OS === 'web') {
-      if (typeof window !== 'undefined' && window.confirm('Resign? Your partner will win this match.')) {
+      if (
+        typeof window !== 'undefined' &&
+        window.confirm('Resign? Your partner will win this match.')
+      ) {
         doResign();
       }
       return;
@@ -149,6 +229,7 @@ export function GameScreen({ navigation }: Props) {
 
   const leave = async () => {
     await clearSession();
+    sessionRef.current = null;
     navigation.popToTop();
   };
 
@@ -204,7 +285,11 @@ export function GameScreen({ navigation }: Props) {
       edges={['top', 'left', 'right']}
     >
       <View style={styles.topBar}>
-        <BackButton onPress={() => navigation.navigate('Home')} label="Home" />
+        <BackButton
+          onPress={() => navigation.navigate('Home')}
+          label="Home"
+          hideWhenRoot={false}
+        />
         <Pressable onPress={() => navigation.navigate('Themes')}>
           <Text
             style={{
@@ -243,6 +328,16 @@ export function GameScreen({ navigation }: Props) {
             You are {session.color === 'w' ? 'White' : 'Black'}
             {opponent ? ` · vs ${opponent}` : ' · waiting…'}
             {game.isCheck && game.status === 'active' ? ' · check' : ''}
+          </Text>
+          <Text
+            style={{
+              color: theme.colors.textMuted,
+              fontFamily: fontFamilyFor(theme, 'body'),
+              marginTop: 2,
+              fontSize: 12,
+            }}
+          >
+            Match stays saved — leave and come back anytime.
           </Text>
         </View>
 
@@ -350,7 +445,7 @@ export function GameScreen({ navigation }: Props) {
                 fontFamily: fontFamilyFor(theme, 'body', 'bold'),
               }}
             >
-              Leave
+              End & leave
             </Text>
           </Pressable>
         </View>

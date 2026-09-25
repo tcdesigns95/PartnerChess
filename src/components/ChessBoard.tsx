@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   LayoutChangeEvent,
   Pressable,
@@ -31,12 +31,30 @@ export function ChessBoard({
   const [selected, setSelected] = useState<string | null>(null);
   const [boardWidth, setBoardWidth] = useState(320);
 
-  const chess = useMemo(() => new Chess(fen), [fen]);
+  const chess = useMemo(() => {
+    try {
+      return new Chess(fen);
+    } catch {
+      return new Chess();
+    }
+  }, [fen]);
+
+  // Drop selection whenever the position changes (after a move / rejoin)
+  useEffect(() => {
+    setSelected(null);
+  }, [fen]);
+
   const legalTargets = useMemo(() => {
     if (!selected) return new Set<string>();
-    return new Set(
-      chess.moves({ square: selected as Square, verbose: true }).map((m) => m.to),
-    );
+    try {
+      return new Set(
+        chess
+          .moves({ square: selected as Square, verbose: true })
+          .map((m) => m.to),
+      );
+    } catch {
+      return new Set<string>();
+    }
   }, [chess, selected]);
 
   const rankOrder =
@@ -53,6 +71,7 @@ export function ChessBoard({
   const handleSquarePress = (square: string) => {
     if (!interactive) return;
     const piece = chess.get(square as Square);
+    const turn = chess.turn();
 
     if (selected) {
       if (selected === square) {
@@ -61,15 +80,16 @@ export function ChessBoard({
       }
       if (legalTargets.has(square)) {
         const moving = chess.get(selected as Square);
-        const isPromotion =
+        const needsPromotion =
           moving?.type === 'p' &&
-          ((moving.color === 'w' && square.endsWith('8')) ||
-            (moving.color === 'b' && square.endsWith('1')));
-        onMove(selected, square, isPromotion ? 'q' : undefined);
+          ((moving.color === 'w' && square[1] === '8') ||
+            (moving.color === 'b' && square[1] === '1'));
+        onMove(selected, square, needsPromotion ? 'q' : undefined);
         setSelected(null);
         return;
       }
-      if (piece && piece.color === chess.turn()) {
+      // Switch selection to another friendly piece
+      if (piece && piece.color === turn) {
         setSelected(square);
         return;
       }
@@ -77,7 +97,7 @@ export function ChessBoard({
       return;
     }
 
-    if (piece && piece.color === chess.turn()) {
+    if (piece && piece.color === turn) {
       setSelected(square);
     }
   };
@@ -88,7 +108,10 @@ export function ChessBoard({
         <View key={rank} style={styles.row}>
           {fileOrder.map((file, colIndex) => {
             const square = `${file}${rank}`;
-            const isLight = (rowIndex + colIndex) % 2 === 1;
+            // Standard chessboard coloring from a1 (dark) perspective
+            const fileIndex = FILES.indexOf(file as (typeof FILES)[number]);
+            const rankIndex = Number(rank) - 1;
+            const isLight = (fileIndex + rankIndex) % 2 === 1;
             const piece = chess.get(square as Square);
             const isLast =
               lastMove &&
@@ -100,6 +123,7 @@ export function ChessBoard({
               <Pressable
                 key={square}
                 onPress={() => handleSquarePress(square)}
+                // Keep SVG pieces from eating taps on web
                 style={[
                   styles.square,
                   {
@@ -118,6 +142,7 @@ export function ChessBoard({
               >
                 {isTarget && (
                   <View
+                    pointerEvents="none"
                     style={[
                       styles.targetDot,
                       {
@@ -134,14 +159,17 @@ export function ChessBoard({
                   />
                 )}
                 {piece && (
-                  <ChessPiece
-                    type={piece.type}
-                    color={piece.color}
-                    size={squareSize * 0.9}
-                  />
+                  <View pointerEvents="none">
+                    <ChessPiece
+                      type={piece.type}
+                      color={piece.color}
+                      size={squareSize * 0.9}
+                    />
+                  </View>
                 )}
                 {colIndex === 0 && (
                   <Text
+                    pointerEvents="none"
                     style={[
                       styles.coord,
                       styles.rankCoord,
@@ -158,6 +186,7 @@ export function ChessBoard({
                 )}
                 {rowIndex === 7 && (
                   <Text
+                    pointerEvents="none"
                     style={[
                       styles.coord,
                       styles.fileCoord,
