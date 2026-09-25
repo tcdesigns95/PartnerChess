@@ -18,6 +18,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Chess } from 'chess.js';
 import { BackButton } from '../components/BackButton';
 import { ChessBoard } from '../components/ChessBoard';
+import { CapturedPiecesRail } from '../components/CapturedPiecesRail';
 import { ChatPanel } from '../components/ChatPanel';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
 import { getSocket, buildInviteLink } from '../lib/socket';
@@ -387,12 +388,24 @@ export function GameScreen({ navigation }: Props) {
           </Text>
         </Pressable>
 
+        <CapturedPiecesRail
+          fen={game.fen}
+          lostBy={session.color}
+          label="They took"
+        />
+
         <ChessBoard
           fen={game.fen}
           orientation={session.color}
           interactive={myTurn}
           lastMove={game.lastMove}
           onMove={onMove}
+        />
+
+        <CapturedPiecesRail
+          fen={game.fen}
+          lostBy={session.color === 'w' ? 'b' : 'w'}
+          label="You took"
         />
 
         {!!error && (
