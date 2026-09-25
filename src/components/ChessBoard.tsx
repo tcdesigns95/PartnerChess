@@ -138,11 +138,14 @@ export function ChessBoard({
                       styles.piece,
                       {
                         fontSize: squareSize * 0.72,
-                        color: piece.color === 'w' ? '#f8f4ec' : '#1a1a1a',
+                        // Same filled glyph for both; white = cream, black = ink
+                        color: piece.color === 'w' ? '#F5F0E6' : '#141414',
                         textShadowColor:
                           piece.color === 'w'
-                            ? 'rgba(0,0,0,0.45)'
-                            : 'rgba(255,255,255,0.25)',
+                            ? 'rgba(0,0,0,0.55)'
+                            : 'rgba(255,255,255,0.2)',
+                        textShadowOffset: { width: 0, height: 1 },
+                        textShadowRadius: piece.color === 'w' ? 3 : 1,
                       },
                     ]}
                   >

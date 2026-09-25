@@ -1,35 +1,39 @@
 import type { PieceSetId } from '../theme/themes';
 
-const CLASSIC: Record<string, string> = {
-  wK: '♔',
-  wQ: '♕',
-  wR: '♖',
-  wB: '♗',
-  wN: '♘',
-  wP: '♙',
-  bK: '♚',
-  bQ: '♛',
-  bR: '♜',
-  bB: '♝',
-  bN: '♞',
-  bP: '♟',
-};
+/**
+ * Filled glyphs for both sides — same silhouette style.
+ * Side is told apart by paint color in ChessBoard, not outline vs fill.
+ */
+const FILLED = {
+  K: '♚',
+  Q: '♛',
+  R: '♜',
+  B: '♝',
+  N: '♞',
+  P: '♟',
+} as const;
 
-/** Slightly different unicode choices for visual variety across themes. */
-const MODERN: Record<string, string> = {
-  ...CLASSIC,
-  wK: '♔',
-  bK: '♚',
-};
-
-const WALNUT: Record<string, string> = {
-  ...CLASSIC,
-};
+function setFor(_pieceSet: PieceSetId): Record<string, string> {
+  return {
+    wK: FILLED.K,
+    wQ: FILLED.Q,
+    wR: FILLED.R,
+    wB: FILLED.B,
+    wN: FILLED.N,
+    wP: FILLED.P,
+    bK: FILLED.K,
+    bQ: FILLED.Q,
+    bR: FILLED.R,
+    bB: FILLED.B,
+    bN: FILLED.N,
+    bP: FILLED.P,
+  };
+}
 
 const SETS: Record<PieceSetId, Record<string, string>> = {
-  classic: CLASSIC,
-  modern: MODERN,
-  walnut: WALNUT,
+  classic: setFor('classic'),
+  modern: setFor('modern'),
+  walnut: setFor('walnut'),
 };
 
 export function pieceGlyph(
@@ -38,7 +42,7 @@ export function pieceGlyph(
   pieceSet: PieceSetId,
 ): string {
   const key = `${color}${type.toUpperCase()}`;
-  return SETS[pieceSet][key] ?? CLASSIC[key] ?? '?';
+  return SETS[pieceSet][key] ?? FILLED[type.toUpperCase() as keyof typeof FILLED] ?? '?';
 }
 
 export const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] as const;
