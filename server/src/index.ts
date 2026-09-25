@@ -11,6 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, '..', 'data');
 const GAMES_FILE = join(DATA_DIR, 'games.json');
+const WEB_DIST = join(__dirname, '..', '..', 'dist');
 
 export type PlayerColor = 'w' | 'b';
 
@@ -196,6 +197,21 @@ app.use(cors());
 app.get('/health', (_req, res) => {
   res.json({ ok: true, games: games.size });
 });
+
+// Serve the exported Expo web app (same origin as Socket.IO for phone links)
+if (existsSync(WEB_DIST)) {
+  app.use(express.static(WEB_DIST, { index: false, maxAge: '1h' }));
+  app.get(/^(?!\/socket\.io\/).*/, (req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    if (req.path.startsWith('/health')) return next();
+    res.sendFile(join(WEB_DIST, 'index.html'), (err) => {
+      if (err) next(err);
+    });
+  });
+  console.log(`Serving web app from ${WEB_DIST}`);
+} else {
+  console.warn(`No web dist at ${WEB_DIST} — run: npx expo export --platform web`);
+}
 
 const httpServer = createServer(app);
 const io = new Server<ClientToServer, ServerToClient>(httpServer, {
