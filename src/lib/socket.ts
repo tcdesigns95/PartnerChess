@@ -50,8 +50,8 @@ type ServerToClient = {
   playerJoined: (payload: { color: PlayerColor; name: string }) => void;
 };
 
-/** Matches `api/socket.ts` on Vercel and the local server mount. */
-export const SOCKET_PATH = '/api/socket/socket.io';
+/** Vercel mounts `api/socket.ts` here. The function does not receive nested `/socket.io` paths. */
+export const SOCKET_PATH = '/api/socket';
 
 let socket: Socket<ServerToClient, ClientToServer> | null = null;
 let boundUrl: string | null = null;
