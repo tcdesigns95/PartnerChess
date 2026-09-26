@@ -2,7 +2,7 @@
 
 Live two-player chess with chat, invite codes, reconnect, and a black & white Ink theme.
 
-The live site is one Node process: the exported web app and Socket.IO share the same origin, so an invite link is just the site URL plus `?code=`.
+The web app and Socket.IO share the same origin, so an invite link is just the site URL plus `?code=`.
 
 ## Play locally
 
@@ -27,6 +27,8 @@ Do not set `EXPO_PUBLIC_SOCKET_URL` in production. The web client uses `window.l
 2. On [vercel.com/new](https://vercel.com/new) import the repo (Hobby plan, no card)
 3. Leave the build settings as `vercel.json` defines them
 4. After deploy, the play link is `https://<project>.vercel.app`
+
+The current play link is [https://temporary-turbo-cygnus-l50udh0.vercel.app](https://temporary-turbo-cygnus-l50udh0.vercel.app). It was deployed without a logged-in Vercel account, so it expires unless that deployment is claimed into a Hobby project.
 
 Pushes to `main` redeploy when the project is connected to GitHub. `.github/workflows/redeploy.yml` can also deploy with the Vercel CLI when `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` are set as repository secrets.
 
