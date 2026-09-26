@@ -35,7 +35,7 @@
     "@types/react": "~19.2.2",
     "@types/uuid": "^10.0.0",
     "http-proxy-middleware": "^3.0.7",
-    "socket.io-client": "^4.8.3",
+    "socket.io-client": "^4.8.4",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -44,7 +44,10 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "server": "npm run dev --prefix server",
-    "server:start": "npm run start --prefix server"
+    "server:start": "npm run start --prefix server",
+    "build:web": "expo export --platform web",
+    "build": "npm run build:web",
+    "start:prod": "npm run start --prefix server"
   },
   "private": true
 }

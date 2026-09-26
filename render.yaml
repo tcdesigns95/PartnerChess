@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: couple-chess
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci && npx expo export --platform web && cd server && npm ci
+    startCommand: cd server && npx tsx src/index.ts
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
