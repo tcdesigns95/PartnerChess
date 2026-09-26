@@ -1,1 +1,2 @@
-https://tomatoes-smoke-january-magnitude.trycloudflare.com
+Not live yet. Render requires a payment method before the free instance will start.
+https://render.com/deploy?repo=https://github.com/tcdesigns95/PartnerChess

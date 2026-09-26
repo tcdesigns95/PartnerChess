@@ -33,6 +33,8 @@ Do not set `EXPO_PUBLIC_SOCKET_URL` in production. The web client uses `window.l
 
 Pushes to `main` redeploy automatically (`autoDeployTrigger: commit`). `.github/workflows/redeploy.yml` can also call the Render API when `RENDER_API_KEY` and `RENDER_SERVICE_ID` are set as repository secrets.
 
+New Render workspaces currently return `need_payment_info` until a card is on file, including for the free instance. The free plan is still $0. Add a payment method, then create the Blueprint service. Without that, Render will not start the app.
+
 The free instance sleeps after 15 minutes without HTTP or WebSocket traffic, and the local `server/data/games.json` file is wiped on sleep or redeploy. `.github/workflows/keepalive.yml` pings `/health` every 10 minutes when the `APP_URL` repository variable is set (for example `https://<service>.onrender.com`). That uses the monthly free-instance hours so the link opens without a cold start.
 
 ### Option B — Docker
