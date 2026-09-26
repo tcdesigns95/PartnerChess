@@ -28,11 +28,11 @@ Do not set `EXPO_PUBLIC_SOCKET_URL` in production. The web client uses `window.l
 3. Leave the build settings as `vercel.json` defines them
 4. After deploy, the play link is `https://<project>.vercel.app`
 
-The current play link is [https://temporary-turbo-cygnus-l50udh0.vercel.app](https://temporary-turbo-cygnus-l50udh0.vercel.app). It was deployed without a logged-in Vercel account, so it expires unless that deployment is claimed into a Hobby project.
+The play link is [https://couple-chess-opal.vercel.app](https://couple-chess-opal.vercel.app).
 
 Pushes to `main` redeploy when the project is connected to GitHub. `.github/workflows/redeploy.yml` can also deploy with the Vercel CLI when `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` are set as repository secrets.
 
-A WebSocket stays on the function instance that accepted it. A new connection is not guaranteed to hit that same instance, and the platform closes the socket when the function reaches its max duration (60 seconds on Hobby). The client reconnects and rejoins. Game state for that instance is kept in memory and `/tmp` — it is not shared across instances. Two people who connect while one instance is warm can play; a later reconnect can miss the game if it lands on a fresh instance.
+A WebSocket stays on the function instance that accepted it, and the platform closes it after the Hobby max duration (60 seconds). The client reconnects. Games and move broadcasts are stored in Redis, so both players still see the same board when they land on different instances.
 
 `.github/workflows/keepalive.yml` pings `/health` every 10 minutes when the `APP_URL` repository variable is set.
 
