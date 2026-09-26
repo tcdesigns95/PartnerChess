@@ -29,7 +29,7 @@ function ack(socket, event, payload) {
 
 async function play(moves) {
   const socketOpts = {
-    path: process.env.SOCKET_PATH || '/api/socket/socket.io',
+    path: process.env.SOCKET_PATH || '/api/socket',
     transports: ['websocket'],
   };
   const a = io(URL, socketOpts);
