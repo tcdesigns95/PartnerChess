@@ -1,14 +1,18 @@
+# One Node service: Expo web export (dist/) + Socket.IO on the same origin.
+# Leave EXPO_PUBLIC_SOCKET_URL unset so the browser connects to window.location.origin.
 services:
   - type: web
     name: couple-chess
     runtime: node
     plan: free
     region: oregon
-    buildCommand: npm ci && npx expo export --platform web && cd server && npm ci
+    branch: main
+    autoDeployTrigger: commit
+    buildCommand: npm ci --include=dev && CI=1 npx expo export --platform web && cd server && npm ci --include=dev
     startCommand: cd server && npx tsx src/index.ts
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
+      - key: NODE_VERSION
+        value: "22.14.0"

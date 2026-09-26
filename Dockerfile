@@ -3,7 +3,7 @@ FROM node:22-bookworm-slim
 
 WORKDIR /app
 
-# Server deps
+# Server deps (tsx is a runtime dependency so the server can run TypeScript)
 COPY server/package.json server/package-lock.json ./server/
 RUN cd server && npm ci --omit=dev
 
@@ -11,9 +11,6 @@ RUN cd server && npm ci --omit=dev
 COPY server/src ./server/src
 COPY server/tsconfig.json ./server/tsconfig.json
 COPY dist ./dist
-
-# tsx to run TypeScript in production without a separate build step
-RUN cd server && npm install tsx@4.19.3 --no-save
 
 ENV NODE_ENV=production
 ENV PORT=3001
