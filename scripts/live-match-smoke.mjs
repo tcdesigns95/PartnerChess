@@ -3,7 +3,10 @@ import { io } from 'socket.io-client';
 const URL = process.env.SOCKET_URL || 'http://localhost:3001';
 
 function client() {
-  return io(URL, { transports: ['websocket'] });
+  return io(URL, {
+    path: process.env.SOCKET_PATH || '/api/socket/socket.io',
+    transports: ['websocket'],
+  });
 }
 
 function once(socket, event, timeoutMs = 5000) {

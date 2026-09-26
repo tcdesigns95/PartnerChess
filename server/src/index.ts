@@ -1,7 +1,8 @@
 import { Chess, type Square } from 'chess.js';
 import cors from 'cors';
 import express from 'express';
-import { createServer } from 'http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'http';
+import type { Duplex } from 'stream';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -9,9 +10,17 @@ import { Server, type Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = join(__dirname, '..', 'data');
+/** Vercel functions can only write to /tmp. Local and Docker keep games under server/data. */
+const DATA_DIR = process.env.VERCEL ? join('/tmp', 'couple-chess') : join(__dirname, '..', 'data');
 const GAMES_FILE = join(DATA_DIR, 'games.json');
 const WEB_DIST = join(__dirname, '..', '..', 'dist');
+/**
+ * Browser path is always `/api/socket/socket.io` (Vercel mounts `api/socket.ts` at `/api/socket`
+ * and Engine.IO appends `/socket.io`). Locally this process is the origin, so requests arrive
+ * with the `/api/socket` prefix still attached. On Vercel the runtime may pass either the full
+ * path or the suffix. We strip the prefix before Engine.IO, which listens on `/socket.io`.
+ */
+const SOCKET_MOUNT = '/api/socket';
 
 export type PlayerColor = 'w' | 'b';
 
@@ -198,10 +207,10 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, games: games.size });
 });
 
-// Serve the exported Expo web app (same origin as Socket.IO for phone links)
-if (existsSync(WEB_DIST)) {
+// Local / Docker only. On Vercel the static Expo export is served from `dist/` by the platform.
+if (!process.env.VERCEL && existsSync(WEB_DIST)) {
   app.use(express.static(WEB_DIST, { index: false, maxAge: '1h' }));
-  app.get(/^(?!\/socket\.io\/).*/, (req, res, next) => {
+  app.get(/^(?!\/(?:socket\.io|api\/socket)(?:\/|$)).*/, (req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
     if (req.path.startsWith('/health')) return next();
     res.sendFile(join(WEB_DIST, 'index.html'), (err) => {
@@ -209,13 +218,39 @@ if (existsSync(WEB_DIST)) {
     });
   });
   console.log(`Serving web app from ${WEB_DIST}`);
-} else {
+} else if (!process.env.VERCEL) {
   console.warn(`No web dist at ${WEB_DIST} — run: npx expo export --platform web`);
 }
+
+function rewriteMountedSocketPath(req: IncomingMessage) {
+  const url = req.url;
+  if (!url) return;
+  if (url === SOCKET_MOUNT || url.startsWith(`${SOCKET_MOUNT}/`) || url.startsWith(`${SOCKET_MOUNT}?`)) {
+    req.url = url.slice(SOCKET_MOUNT.length) || '/';
+  }
+}
+
+type RequestListener = (req: IncomingMessage, res: ServerResponse) => void;
+type UpgradeListener = (req: IncomingMessage, socket: Duplex, head: Buffer) => void;
 
 const httpServer = createServer(app);
 const io = new Server<ClientToServer, ServerToClient>(httpServer, {
   cors: { origin: '*', methods: ['GET', 'POST'] },
+});
+
+// Run before Engine.IO so `/api/socket/socket.io` and `/socket.io` both match.
+const requestListeners = httpServer.listeners('request').slice() as RequestListener[];
+httpServer.removeAllListeners('request');
+httpServer.on('request', (req, res) => {
+  rewriteMountedSocketPath(req);
+  for (const listener of requestListeners) listener.call(httpServer, req, res);
+});
+
+const upgradeListeners = httpServer.listeners('upgrade').slice() as UpgradeListener[];
+httpServer.removeAllListeners('upgrade');
+httpServer.on('upgrade', (req, socket, head) => {
+  rewriteMountedSocketPath(req);
+  for (const listener of upgradeListeners) listener.call(httpServer, req, socket, head);
 });
 
 function emitGame(game: StoredGame) {
@@ -445,7 +480,12 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
   });
 });
 
-const PORT = Number(process.env.PORT || 3001);
-httpServer.listen(PORT, () => {
-  console.log(`Chess couple server listening on :${PORT}`);
-});
+// Vercel invokes the exported server. Listening here would crash the function.
+if (!process.env.VERCEL) {
+  const PORT = Number(process.env.PORT || 3001);
+  httpServer.listen(PORT, () => {
+    console.log(`Chess couple server listening on :${PORT}`);
+  });
+}
+
+export default httpServer;

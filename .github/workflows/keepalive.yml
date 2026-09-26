@@ -2,7 +2,7 @@ name: Keep awake
 
 on:
   schedule:
-    # Render free services sleep after 15 minutes without traffic.
+    # Optional warm-up for the live Vercel URL once APP_URL is set.
     - cron: "*/10 * * * *"
   workflow_dispatch:
 

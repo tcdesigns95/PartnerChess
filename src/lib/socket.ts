@@ -50,8 +50,20 @@ type ServerToClient = {
   playerJoined: (payload: { color: PlayerColor; name: string }) => void;
 };
 
+/** Matches `api/socket.ts` on Vercel and the local server mount. */
+export const SOCKET_PATH = '/api/socket/socket.io';
+
 let socket: Socket<ServerToClient, ClientToServer> | null = null;
 let boundUrl: string | null = null;
+
+function isLoopbackUrl(url: string) {
+  try {
+    const hostname = new URL(url).hostname;
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+  } catch {
+    return false;
+  }
+}
 
 export function getSocketUrl() {
   return resolveSocketUrl();
@@ -64,7 +76,9 @@ export function getSocket() {
     boundUrl = url;
     socket = io(url, {
       autoConnect: true,
-      transports: ['websocket', 'polling'],
+      path: SOCKET_PATH,
+      // Vercel Functions do not support Socket.IO long-polling.
+      transports: isLoopbackUrl(url) ? ['websocket', 'polling'] : ['websocket'],
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 500,

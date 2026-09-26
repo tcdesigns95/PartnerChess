@@ -1,3 +1,4 @@
+# Unused. This app is hosted on Vercel (see vercel.json).
 # One Node service: Expo web export (dist/) + Socket.IO on the same origin.
 # Leave EXPO_PUBLIC_SOCKET_URL unset so the browser connects to window.location.origin.
 services:

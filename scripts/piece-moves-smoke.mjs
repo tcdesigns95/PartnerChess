@@ -28,8 +28,12 @@ function ack(socket, event, payload) {
 }
 
 async function play(moves) {
-  const a = io(URL, { transports: ['websocket'] });
-  const b = io(URL, { transports: ['websocket'] });
+  const socketOpts = {
+    path: process.env.SOCKET_PATH || '/api/socket/socket.io',
+    transports: ['websocket'],
+  };
+  const a = io(URL, socketOpts);
+  const b = io(URL, socketOpts);
   await Promise.all([once(a, 'connect'), once(b, 'connect')]);
 
   const created = await ack(a, 'createGame', { name: 'White', preferColor: 'w' });
