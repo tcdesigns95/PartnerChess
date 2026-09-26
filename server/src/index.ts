@@ -4,16 +4,21 @@ import express from 'express';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import type { Duplex } from 'stream';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
+import { join } from 'path';
 import { Server, type Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+/** `npm --prefix server` and Docker set cwd to `server/`. A repo-root cwd still works. */
+function serverRoot(): string {
+  const cwd = process.cwd();
+  if (cwd.endsWith('/server') || cwd.endsWith('\\server')) return cwd;
+  return join(cwd, 'server');
+}
+
 /** Vercel functions can only write to /tmp. Local and Docker keep games under server/data. */
-const DATA_DIR = process.env.VERCEL ? join('/tmp', 'couple-chess') : join(__dirname, '..', 'data');
+const DATA_DIR = process.env.VERCEL ? join('/tmp', 'couple-chess') : join(serverRoot(), 'data');
 const GAMES_FILE = join(DATA_DIR, 'games.json');
-const WEB_DIST = join(__dirname, '..', '..', 'dist');
+const WEB_DIST = join(serverRoot(), '..', 'dist');
 /**
  * Browser path is always `/api/socket/socket.io` (Vercel mounts `api/socket.ts` at `/api/socket`
  * and Engine.IO appends `/socket.io`). Locally this process is the origin, so requests arrive
