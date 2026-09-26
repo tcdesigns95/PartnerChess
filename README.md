@@ -30,7 +30,7 @@ Do not set `EXPO_PUBLIC_SOCKET_URL` in production. The web client uses `window.l
 
 Pushes to `main` redeploy when the project is connected to GitHub. `.github/workflows/redeploy.yml` can also deploy with the Vercel CLI when `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` are set as repository secrets.
 
-A WebSocket stays on the function instance that accepted it. A new connection is not guaranteed to hit that same instance, and the platform closes the socket when the function reaches its max duration (300 seconds). The client reconnects and rejoins. Game state for that instance is kept in memory and `/tmp` — it is not shared across instances. Two people who connect while one instance is warm can play; a later reconnect can miss the game if it lands on a fresh instance.
+A WebSocket stays on the function instance that accepted it. A new connection is not guaranteed to hit that same instance, and the platform closes the socket when the function reaches its max duration (60 seconds on Hobby). The client reconnects and rejoins. Game state for that instance is kept in memory and `/tmp` — it is not shared across instances. Two people who connect while one instance is warm can play; a later reconnect can miss the game if it lands on a fresh instance.
 
 `.github/workflows/keepalive.yml` pings `/health` every 10 minutes when the `APP_URL` repository variable is set.
 
