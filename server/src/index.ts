@@ -1,8 +1,7 @@
 import { Chess, type Square } from 'chess.js';
 import cors from 'cors';
 import express from 'express';
-import { createServer, type IncomingMessage, type ServerResponse } from 'http';
-import type { Duplex } from 'stream';
+import { createServer } from 'http';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { Server, type Socket } from 'socket.io';
@@ -20,12 +19,11 @@ const DATA_DIR = process.env.VERCEL ? join('/tmp', 'couple-chess') : join(server
 const GAMES_FILE = join(DATA_DIR, 'games.json');
 const WEB_DIST = join(serverRoot(), '..', 'dist');
 /**
- * Browser path is always `/api/socket/socket.io` (Vercel mounts `api/socket.ts` at `/api/socket`
- * and Engine.IO appends `/socket.io`). Locally this process is the origin, so requests arrive
- * with the `/api/socket` prefix still attached. On Vercel the runtime may pass either the full
- * path or the suffix. We strip the prefix before Engine.IO, which listens on `/socket.io`.
+ * The browser always connects to `/api/socket`. Vercel serves `api/socket.ts` at that path and
+ * strips the mount before the request reaches this process, so Engine.IO sees `/`.
+ * Locally this process is the origin, so Engine.IO listens on the full path.
  */
-const SOCKET_MOUNT = '/api/socket';
+const SOCKET_PATH = process.env.VERCEL ? '/' : '/api/socket';
 
 export type PlayerColor = 'w' | 'b';
 
@@ -227,35 +225,10 @@ if (!process.env.VERCEL && existsSync(WEB_DIST)) {
   console.warn(`No web dist at ${WEB_DIST} — run: npx expo export --platform web`);
 }
 
-function rewriteMountedSocketPath(req: IncomingMessage) {
-  const url = req.url;
-  if (!url) return;
-  if (url === SOCKET_MOUNT || url.startsWith(`${SOCKET_MOUNT}/`) || url.startsWith(`${SOCKET_MOUNT}?`)) {
-    req.url = url.slice(SOCKET_MOUNT.length) || '/';
-  }
-}
-
-type RequestListener = (req: IncomingMessage, res: ServerResponse) => void;
-type UpgradeListener = (req: IncomingMessage, socket: Duplex, head: Buffer) => void;
-
 const httpServer = createServer(app);
 const io = new Server<ClientToServer, ServerToClient>(httpServer, {
+  path: SOCKET_PATH,
   cors: { origin: '*', methods: ['GET', 'POST'] },
-});
-
-// Run before Engine.IO so `/api/socket/socket.io` and `/socket.io` both match.
-const requestListeners = httpServer.listeners('request').slice() as RequestListener[];
-httpServer.removeAllListeners('request');
-httpServer.on('request', (req, res) => {
-  rewriteMountedSocketPath(req);
-  for (const listener of requestListeners) listener.call(httpServer, req, res);
-});
-
-const upgradeListeners = httpServer.listeners('upgrade').slice() as UpgradeListener[];
-httpServer.removeAllListeners('upgrade');
-httpServer.on('upgrade', (req, socket, head) => {
-  rewriteMountedSocketPath(req);
-  for (const listener of upgradeListeners) listener.call(httpServer, req, socket, head);
 });
 
 function emitGame(game: StoredGame) {
