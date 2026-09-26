@@ -21,7 +21,7 @@ Open `http://localhost:3001`.
 
 Host on **Vercel**. The Expo web export is a static site, and Socket.IO runs as a Fluid function at `api/socket.ts` on the same origin.
 
-Do not set `EXPO_PUBLIC_SOCKET_URL` in production. The web client uses `window.location.origin` whenever it is not on localhost, and connects with WebSocket-only transport at `/api/socket/socket.io`.
+Do not set `EXPO_PUBLIC_SOCKET_URL` in production. The web client uses `window.location.origin` whenever it is not on localhost, and connects with WebSocket-only transport at `/api/socket`.
 
 1. Push this repo to GitHub
 2. On [vercel.com/new](https://vercel.com/new) import the repo (Hobby plan, no card)
