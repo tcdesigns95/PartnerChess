@@ -4,6 +4,8 @@ import express from 'express';
 import { createServer } from 'http';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { createAdapter } from '@socket.io/redis-adapter';
+import { Redis } from 'ioredis';
 import { Server, type Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -138,13 +140,70 @@ function persistGames() {
   writeFileSync(GAMES_FILE, JSON.stringify(list, null, 2));
 }
 
-function makeCode(): string {
+function sharedRedisUrl(): string | undefined {
+  const url = (process.env.REDIS_URL || process.env.KV_URL || '').trim();
+  return url || undefined;
+}
+
+let redis: Redis | null = null;
+function getRedis(): Redis | null {
+  const url = sharedRedisUrl();
+  if (!url) return null;
+  if (!redis) {
+    redis = new Redis(url, { maxRetriesPerRequest: 2 });
+    redis.on('error', (err: Error) => console.error('redis', err.message));
+  }
+  return redis;
+}
+
+function remember(game: StoredGame) {
+  games.set(game.id, game);
+  codeIndex.set(game.code, game.id);
+}
+
+async function saveGame(game: StoredGame) {
+  remember(game);
+  const client = getRedis();
+  if (!client) {
+    persistGames();
+    return;
+  }
+  await client.set(`chess:game:${game.id}`, JSON.stringify(game));
+  await client.set(`chess:code:${game.code}`, game.id);
+}
+
+async function loadGame(id: string): Promise<StoredGame | undefined> {
+  const client = getRedis();
+  if (client) {
+    const raw = await client.get(`chess:game:${id}`);
+    if (raw) {
+      const game = JSON.parse(raw) as StoredGame;
+      remember(game);
+      return game;
+    }
+  }
+  return games.get(id);
+}
+
+async function loadByCode(code: string): Promise<StoredGame | undefined> {
+  const known = codeIndex.get(code);
+  if (known) return loadGame(known);
+  const client = getRedis();
+  if (!client) return undefined;
+  const gameId = await client.get(`chess:code:${code}`);
+  if (!gameId) return undefined;
+  return loadGame(gameId);
+}
+
+async function makeCode(): Promise<string> {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
   for (let i = 0; i < 6; i++) {
     code += alphabet[Math.floor(Math.random() * alphabet.length)];
   }
   if (codeIndex.has(code)) return makeCode();
+  const client = getRedis();
+  if (client && (await client.exists(`chess:code:${code}`))) return makeCode();
   return code;
 }
 
@@ -231,13 +290,19 @@ const io = new Server<ClientToServer, ServerToClient>(httpServer, {
   cors: { origin: '*', methods: ['GET', 'POST'] },
 });
 
+const sharedRedis = getRedis();
+if (sharedRedis) {
+  io.adapter(createAdapter(sharedRedis, sharedRedis.duplicate()));
+  console.log('Sharing games across instances with Redis');
+}
+
 function emitGame(game: StoredGame) {
   const pub = toPublic(game, connectedPlayersFor(game));
   io.to(game.id).emit('gameUpdated', pub);
 }
 
 io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
-  socket.on('createGame', (payload, cb) => {
+  socket.on('createGame', async (payload, cb) => {
     try {
       const name = (payload.name || 'Player').trim().slice(0, 24) || 'Player';
       const prefer = payload.preferColor ?? 'random';
@@ -247,7 +312,7 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
       const chess = new Chess();
       const game: StoredGame = {
         id: uuidv4(),
-        code: makeCode(),
+        code: await makeCode(),
         fen: chess.fen(),
         pgn: chess.pgn(),
         status: 'waiting',
@@ -258,11 +323,9 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      games.set(game.id, game);
-      codeIndex.set(game.code, game.id);
       socket.join(game.id);
       socketPlayer.set(socket.id, { gameId: game.id, playerId });
-      persistGames();
+      await saveGame(game);
       cb({ ok: true, game: toPublic(game, connectedPlayersFor(game)), playerId, color });
     } catch (err) {
       console.error(err);
@@ -270,18 +333,13 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
     }
   });
 
-  socket.on('joinGame', (payload, cb) => {
+  socket.on('joinGame', async (payload, cb) => {
     try {
       const code = (payload.code || '').trim().toUpperCase();
       const name = (payload.name || 'Player').trim().slice(0, 24) || 'Player';
-      const gameId = codeIndex.get(code);
-      if (!gameId) {
-        cb({ ok: false, error: 'Game code not found' });
-        return;
-      }
-      const game = games.get(gameId);
+      const game = await loadByCode(code);
       if (!game) {
-        cb({ ok: false, error: 'Game not found' });
+        cb({ ok: false, error: 'Game code not found' });
         return;
       }
       if (game.status === 'finished') {
@@ -303,7 +361,7 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
       game.updatedAt = Date.now();
       socket.join(game.id);
       socketPlayer.set(socket.id, { gameId: game.id, playerId });
-      persistGames();
+      await saveGame(game);
       io.to(game.id).emit('playerJoined', { color, name });
       emitGame(game);
       cb({ ok: true, game: toPublic(game, connectedPlayersFor(game)), playerId, color });
@@ -313,8 +371,8 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
     }
   });
 
-  socket.on('rejoinGame', (payload, cb) => {
-    const game = games.get(payload.gameId);
+  socket.on('rejoinGame', async (payload, cb) => {
+    const game = await loadGame(payload.gameId);
     if (!game) {
       cb({ ok: false, error: 'Game not found' });
       return;
@@ -330,8 +388,8 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
     cb({ ok: true, game: toPublic(game, connectedPlayersFor(game)), color });
   });
 
-  socket.on('makeMove', (payload, cb) => {
-    const game = games.get(payload.gameId);
+  socket.on('makeMove', async (payload, cb) => {
+    const game = await loadGame(payload.gameId);
     if (!game) {
       cb({ ok: false, error: 'Game not found' });
       return;
@@ -386,7 +444,7 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
       game.lastMove = { from: move.from, to: move.to };
       game.updatedAt = Date.now();
       finishIfNeeded(game);
-      persistGames();
+      await saveGame(game);
       emitGame(game);
       cb({ ok: true, game: toPublic(game, connectedPlayersFor(game)) });
     } catch {
@@ -394,8 +452,8 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
     }
   });
 
-  socket.on('sendChat', (payload, cb) => {
-    const game = games.get(payload.gameId);
+  socket.on('sendChat', async (payload, cb) => {
+    const game = await loadGame(payload.gameId);
     if (!game) {
       cb({ ok: false, error: 'Game not found' });
       return;
@@ -421,13 +479,13 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
     game.chat.push(message);
     if (game.chat.length > 200) game.chat = game.chat.slice(-200);
     game.updatedAt = Date.now();
-    persistGames();
+    await saveGame(game);
     io.to(game.id).emit('chatMessage', message);
     cb({ ok: true });
   });
 
-  socket.on('resign', (payload, cb) => {
-    const game = games.get(payload.gameId);
+  socket.on('resign', async (payload, cb) => {
+    const game = await loadGame(payload.gameId);
     if (!game) {
       cb({ ok: false, error: 'Game not found' });
       return;
@@ -444,7 +502,7 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
     game.status = 'finished';
     game.result = color === 'w' ? 'Black wins — white resigned' : 'White wins — black resigned';
     game.updatedAt = Date.now();
-    persistGames();
+    await saveGame(game);
     emitGame(game);
     cb({ ok: true, game: toPublic(game, connectedPlayersFor(game)) });
   });
