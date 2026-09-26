@@ -1,2 +1,4 @@
-Not live yet. Render requires a payment method before the free instance will start.
-https://render.com/deploy?repo=https://github.com/tcdesigns95/PartnerChess
+https://temporary-turbo-cygnus-l50udh0.vercel.app
+
+Open that link to play. Invite links are the same address plus ?code=.
+This deployment is on Vercel and will expire unless it is claimed into a Vercel account.
