@@ -1,4 +1,3 @@
-https://temporary-turbo-cygnus-l50udh0.vercel.app
+https://couple-chess-opal.vercel.app
 
 Open that link to play. Invite links are the same address plus ?code=.
-This deployment is on Vercel and will expire unless it is claimed into a Vercel account.
