@@ -46,3 +46,4 @@ server/data/
 
 # Vercel
 .vercel
+.env*
