@@ -2,11 +2,11 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "installCommand": "npm ci --include=dev && npm ci --prefix server",
-  "buildCommand": "CI=1 npx expo export --platform web",
+  "buildCommand": "CI=1 npx expo export --platform web && npx tsc -p server/tsconfig.json",
   "outputDirectory": "dist",
   "functions": {
     "api/socket.ts": {
-      "maxDuration": 300
+      "maxDuration": 60
     }
   },
   "rewrites": [
