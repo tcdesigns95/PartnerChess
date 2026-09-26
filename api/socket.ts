@@ -1,3 +1,3 @@
-import server from '../server/src/index';
+import server from '../server/dist/index.js';
 
 export default server;
