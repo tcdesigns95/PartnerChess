@@ -39,6 +39,7 @@ export function GameScreen({ navigation }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const sharePrompted = useRef(false);
   const sessionRef = useRef<Session | null>(null);
   const { width: winW, height: winH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -144,8 +145,18 @@ export function GameScreen({ navigation }: Props) {
     if (!game?.code) return;
     await Clipboard.setStringAsync(buildInviteLink(game.code));
     setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
+    setTimeout(() => setCopied(false), 1600);
   };
+
+  useEffect(() => {
+    if (game?.status !== 'waiting' || sharePrompted.current) return;
+    sharePrompted.current = true;
+    setMenuOpen(true);
+  }, [game?.status]);
+
+  useEffect(() => {
+    if (game?.status === 'active') setMenuOpen(false);
+  }, [game?.status]);
 
   const onMove = (from: string, to: string, promotion?: string) => {
     if (!session || !game) return;
@@ -240,7 +251,6 @@ export function GameScreen({ navigation }: Props) {
   }
 
   const myTurn = game.status === 'active' && game.turn === session.color;
-  const waiting = game.status === 'waiting';
   const opponent =
     session.color === 'w' ? game.players.b?.name : game.players.w?.name;
   const bottomInset = Math.max(insets.bottom, 8);
@@ -250,7 +260,7 @@ export function GameScreen({ navigation }: Props) {
   const contentW = Math.max(0, areaW - hPad * 2);
   const contentH = Math.max(0, areaH - bottomInset);
   const sideWidth = contentW < 340 ? 36 : 42;
-  const footerH = (waiting ? 168 : 0) + (error ? 36 : 0);
+  const footerH = error ? 36 : 0;
   const availW = contentW - sideWidth - 6;
   const availH = contentH - footerH;
   const boardSize = Math.max(0, Math.floor(Math.min(availW, availH)));
@@ -281,8 +291,9 @@ export function GameScreen({ navigation }: Props) {
                 fontSize: 13,
               }}
             >
-              {session.color === 'w' ? 'White' : 'Black'}
-              {opponent ? ` vs ${opponent}` : ''}
+            {copied
+              ? 'Invite copied'
+              : `${session.color === 'w' ? 'White' : 'Black'}${opponent ? ` vs ${opponent}` : ''}`}
             </Text>
             {myTurn ? (
               <Text
@@ -374,64 +385,6 @@ export function GameScreen({ navigation }: Props) {
           </Text>
         )}
 
-        {waiting && (
-          <View
-            style={[
-              styles.wait,
-              {
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.border,
-              },
-            ]}
-          >
-            <Text
-              style={{
-                color: theme.colors.textMuted,
-                fontFamily: fontFamilyFor(theme, 'body', 'bold'),
-                fontSize: 12,
-                letterSpacing: 1.2,
-                textTransform: 'uppercase',
-              }}
-            >
-              Share this code
-            </Text>
-            <Text
-              selectable
-              style={{
-                color: theme.colors.text,
-                fontFamily: fontFamilyFor(theme, 'display', 'bold'),
-                fontSize: contentH < 560 ? 28 : 32,
-                lineHeight: contentH < 560 ? 32 : 36,
-                letterSpacing: contentW < 340 ? 3 : 5,
-              }}
-            >
-              {game.code}
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Copy invite link"
-              onPress={() => void copyInvite()}
-              style={({ pressed }) => [
-                styles.copyBtn,
-                {
-                  backgroundColor: theme.colors.text,
-                  opacity: pressed ? 0.8 : 1,
-                },
-              ]}
-            >
-              <Text
-                style={{
-                  color: theme.colors.accentText,
-                  fontFamily: fontFamilyFor(theme, 'body', 'bold'),
-                  fontSize: 16,
-                  letterSpacing: 0.4,
-                }}
-              >
-                {copied ? 'Invite copied' : 'Copy invite'}
-              </Text>
-            </Pressable>
-          </View>
-        )}
         </View>
       </View>
 
@@ -493,9 +446,10 @@ export function GameScreen({ navigation }: Props) {
       <GameMenu
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
-        subtitle={`Code ${game.code}`}
+        code={game.code}
+        subtitle={game.status === 'waiting' ? 'Share this code' : undefined}
         items={[
-          { label: 'Copy invite link', onPress: () => void copyInvite() },
+          { label: copied ? 'Invite copied' : 'Copy invite link', onPress: () => void copyInvite() },
           { label: 'Themes', onPress: () => navigation.navigate('Themes') },
           {
             label: chatOpen ? 'Hide chat' : 'Show chat',
@@ -549,23 +503,6 @@ const styles = StyleSheet.create({
   },
   footer: {
     justifyContent: 'flex-end',
-  },
-  wait: {
-    alignItems: 'center',
-    gap: 4,
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 12,
-  },
-  copyBtn: {
-    alignSelf: 'stretch',
-    minHeight: 48,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 4,
   },
   chatLayer: {
     position: 'absolute',

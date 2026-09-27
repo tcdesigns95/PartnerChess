@@ -21,6 +21,7 @@ type GameMenuProps = {
   onClose: () => void;
   items: MenuItem[];
   subtitle?: string;
+  code?: string;
 };
 
 export function MenuButton({ onPress }: { onPress: () => void }) {
@@ -60,7 +61,7 @@ export function GearIcon({ color, size = 22 }: { color: string; size?: number })
   );
 }
 
-export function GameMenu({ open, onClose, items, subtitle }: GameMenuProps) {
+export function GameMenu({ open, onClose, items, subtitle, code }: GameMenuProps) {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -91,6 +92,21 @@ export function GameMenu({ open, onClose, items, subtitle }: GameMenuProps) {
               Menu
             </Text>
           </View>
+          {!!code && (
+            <Text
+              selectable
+              style={{
+                color: theme.colors.text,
+                fontFamily: fontFamilyFor(theme, 'display', 'bold'),
+                fontSize: 32,
+                letterSpacing: 5,
+                textAlign: 'center',
+                marginBottom: 4,
+              }}
+            >
+              {code}
+            </Text>
+          )}
           {!!subtitle && (
             <Text
               style={{
@@ -98,6 +114,7 @@ export function GameMenu({ open, onClose, items, subtitle }: GameMenuProps) {
                 fontFamily: fontFamilyFor(theme, 'body'),
                 marginBottom: 12,
                 fontSize: 13,
+                textAlign: code ? 'center' : 'left',
               }}
             >
               {subtitle}
