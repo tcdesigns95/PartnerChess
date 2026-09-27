@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg from 'react-native-svg';
-import { PiecePath, type PieceColor, type PieceType } from './ChessPiece';
+import { PIECE_VIEWBOX, PiecePath, type PieceColor, type PieceType } from './ChessPiece';
 
 type SilhouettePieceTileProps = {
   type: PieceType;
@@ -21,7 +21,7 @@ export function SilhouettePieceTile({
 
   return (
     <View style={[styles.wrap, { width: size, height: size }]}>
-      <Svg width={size} height={size} viewBox="0 0 80 100">
+      <Svg width={size} height={size} viewBox={PIECE_VIEWBOX}>
         <PiecePath type={type} fill={fill} stroke={stroke} outlined={!isBlackPiece} />
       </Svg>
     </View>
