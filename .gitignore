@@ -43,3 +43,7 @@ server/data/
 # generated native folders
 /ios
 /android
+
+# Vercel
+.vercel
+.env*

@@ -1,6 +1,6 @@
 import 'react-native-gesture-handler';
-import React from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import React, { useEffect } from 'react';
+import { ActivityIndicator, Platform, View } from 'react-native';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -13,6 +13,31 @@ import { ThemesScreen } from './src/screens/ThemesScreen';
 import type { RootStackParamList } from './src/lib/types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+
+/** Phone browsers: use the dynamic viewport and the notch, without locking zoom. */
+function useWebViewport() {
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const meta = document.querySelector('meta[name="viewport"]');
+    if (meta) {
+      meta.setAttribute(
+        'content',
+        'width=device-width, initial-scale=1, viewport-fit=cover',
+      );
+    }
+    const style = document.createElement('style');
+    style.setAttribute('data-couple-chess', 'viewport');
+    style.textContent = `
+      html, body, #root { height: 100%; }
+      body { margin: 0; overflow: hidden; overscroll-behavior: none; }
+      #root { height: 100dvh; min-height: 100dvh; }
+    `;
+    document.head.appendChild(style);
+    return () => {
+      style.remove();
+    };
+  }, []);
+}
 
 function RootNavigator() {
   const { theme, fontsReady } = useTheme();
@@ -57,6 +82,7 @@ function RootNavigator() {
 }
 
 export default function App() {
+  useWebViewport();
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>

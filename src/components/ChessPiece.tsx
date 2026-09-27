@@ -1,5 +1,5 @@
 import React from 'react';
-import Svg, { Circle, G, Path, Rect } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 
 export type PieceType = 'k' | 'q' | 'r' | 'b' | 'n' | 'p';
 export type PieceColor = 'w' | 'b';
@@ -11,21 +11,27 @@ type ChessPieceProps = {
 };
 
 /**
- * Exact silhouette language from the user's icon sheet, in black & white.
- * Shared wide pedestal + thin collar line on every piece.
+ * Silhouettes traced from assets/piece-icons-reference.jpg.
+ * One viewBox keeps every piece on the same baseline.
  */
+export const PIECE_VIEWBOX = '18 6 104 104';
+
+const PIECE_PATHS: Record<PieceType, string> = {
+  k: 'M37.7 105.1C36.2 103.6 37.5 100.3 41.8 94.6C48.9 85.2 51.9 75.6 50.6 66.5C50.0 62.6 50.0 62.6 46.6 62.6C42.3 62.6 41.1 60.5 43.9 58.2C44.9 57.4 45.8 56.2 45.8 55.7C45.8 55.2 46.4 54.8 47.1 54.8C49.0 54.8 48.6 52.4 45.3 44.1C41.4 34.3 41.4 34.1 50.1 34.1L57.0 34.1L57.0 31.1C57.0 28.3 56.8 28.1 54.4 28.1C52.0 28.1 51.8 27.9 51.8 24.6C51.8 21.4 52.0 21.2 54.4 21.2C56.7 21.2 57.0 20.9 57.0 18.6C57.0 16.1 57.2 16.0 60.4 16.0C63.7 16.0 63.9 16.1 63.9 18.6C63.9 20.9 64.2 21.2 66.5 21.2C68.9 21.2 69.1 21.4 69.1 24.6C69.1 27.9 68.9 28.1 66.5 28.1C64.1 28.1 63.9 28.3 63.9 31.1L63.9 34.1L70.4 34.1C78.6 34.1 78.8 34.5 74.8 44.5C71.3 53.2 71.0 54.8 72.9 54.8C73.6 54.8 74.2 55.3 74.2 56.0C74.2 56.7 75.0 57.5 76.0 57.8C79.5 58.9 77.8 62.1 73.6 62.4L69.9 62.7L69.9 69.8C69.9 79.9 72.2 86.7 78.2 94.6C81.5 99.1 82.8 101.5 82.7 103.1L82.4 105.2L60.4 105.5C48.3 105.6 38.1 105.4 37.7 105.1Z',
+  q: 'M35.9 103.5C35.3 100.9 36.2 99.1 40.9 93.2C47.8 84.8 50.8 74.6 49.7 63.2L49.1 56.5L45.8 56.5C41.7 56.5 40.4 54.3 43.1 52.1C44.1 51.3 44.9 50.2 44.9 49.7C44.9 49.2 45.7 48.8 46.7 48.8C49.0 48.8 48.7 46.3 44.8 34.8C41.8 26.2 41.9 25.6 45.9 27.5C49.3 29.3 50.1 29.3 50.1 27.6C50.1 26.9 51.4 25.5 53.1 24.4C55.2 23.0 56.1 21.8 56.1 20.3C56.1 17.5 57.6 16.0 60.1 16.0C62.2 16.0 63.9 18.2 63.9 21.1C63.9 22.2 64.9 23.4 66.5 24.2C68.0 25.0 69.1 26.2 69.1 27.2C69.1 29.2 70.5 29.4 72.9 27.6C74.5 26.4 77.7 25.9 77.7 26.9C77.7 27.2 76.4 30.9 74.7 35.3C70.8 45.9 70.2 48.8 72.0 48.8C72.8 48.8 73.6 49.3 73.9 50.0C74.2 50.7 75.1 51.5 76.1 51.8C79.4 52.9 77.7 56.1 73.7 56.3C70.2 56.6 70.1 56.6 70.1 60.0C70.0 61.9 69.8 64.2 69.5 65.1C67.7 70.6 72.5 85.0 79.0 93.7C82.7 98.6 83.7 100.6 83.5 102.6L83.3 105.2L59.9 105.5L36.5 105.7L35.9 103.5Z',
+  b: 'M35.5 104.4C33.7 102.2 35.2 98.9 40.2 94.3C46.5 88.4 49.5 82.2 49.6 74.8L49.7 69.2L45.9 68.2C39.8 66.7 38.9 61.7 44.6 61.7C46.2 61.7 46.7 61.3 46.5 60.1C46.3 59.2 46.7 57.9 47.4 57.1C48.4 55.9 48.3 55.1 46.7 52.0C42.9 44.1 45.1 34.6 52.6 26.2C54.6 23.9 56.1 21.3 56.1 20.1C56.1 17.6 57.6 16.0 60.0 16.0C62.5 16.0 63.9 17.6 63.9 20.4C63.9 21.6 64.5 23.2 65.2 23.8C67.0 25.3 66.9 26.1 63.0 34.0C59.2 41.9 59.0 42.7 60.9 42.7C61.6 42.7 63.6 39.8 65.6 35.8C69.6 27.9 70.1 27.8 73.5 34.7C75.9 39.7 76.1 47.1 74.0 51.3C71.7 55.7 72.7 61.5 75.7 61.9C81.4 62.5 79.8 67.5 73.6 68.5L70.3 69.1L70.4 74.6C70.5 82.4 73.0 87.5 79.9 94.2C84.9 99.0 85.5 99.9 85.3 102.4L85.0 105.2L60.8 105.5C40.1 105.6 36.4 105.5 35.5 104.4Z',
+  n: 'M39.2 93.9C39.5 92.0 40.8 89.6 42.3 88.0C45.4 84.8 45.5 84.2 43.1 79.7C40.4 74.4 41.3 72.5 53.6 56.9C57.5 52.0 58.1 49.1 55.0 50.0C54.0 50.3 51.8 50.9 50.2 51.3C48.4 51.8 45.9 53.6 44.0 55.6C40.7 59.2 37.1 60.2 35.7 58.0C35.3 57.4 34.3 56.5 33.3 56.0C29.7 54.0 29.2 52.0 31.4 47.8C32.6 45.7 35.1 40.9 37.2 37.1C39.2 33.3 41.8 29.2 42.9 27.9C44.9 25.9 45.0 25.2 44.5 20.8L43.8 15.9L47.9 17.9C51.1 19.5 52.0 19.6 52.6 18.7C54.4 15.8 71.5 17.9 73.6 21.3C74.2 22.2 75.5 22.9 76.5 22.9C78.8 22.9 85.3 29.3 86.0 32.3C86.3 33.5 87.1 35.0 87.7 35.6C91.5 39.4 91.5 57.7 87.8 65.0C87.1 66.4 87.1 67.2 87.7 67.6C88.2 67.9 88.9 69.8 89.2 71.8C89.7 75.3 89.6 75.7 86.3 78.8C84.0 81.0 82.8 81.7 82.5 80.9C81.1 77.3 81.1 70.6 82.4 62.5C84.3 51.6 83.7 45.9 80.2 38.7C76.1 30.3 68.3 24.6 59.3 23.3C53.0 22.4 53.9 25.3 60.4 26.9C76.8 31.1 82.6 42.8 79.0 64.5C77.1 76.2 78.6 82.8 84.3 88.1C86.5 90.2 87.2 91.5 87.2 93.9L87.2 97.0L62.9 97.0L38.7 97.0L39.2 93.9Z',
+  r: 'M33.6 104.4C32.6 101.7 33.7 98.3 35.6 98.1C38.1 97.7 38.2 95.7 35.9 95.1C32.6 94.2 33.5 88.7 37.7 84.9L41.2 81.6L43.2 60.2C44.3 48.5 45.1 38.8 45.1 38.8C45.0 38.8 43.3 37.7 41.2 36.4L37.5 34.0L37.8 25.2L38.0 16.4L42.3 16.4L46.6 16.4L46.9 19.7C47.2 22.9 47.2 22.9 51.0 22.9C54.8 22.9 54.8 22.9 54.8 19.9L54.8 16.9L60.0 16.9L65.2 16.9L65.2 19.9C65.2 22.8 65.3 22.9 68.6 22.9C71.9 22.9 72.0 22.8 72.2 19.7L72.5 16.4L76.9 16.2L81.4 15.9L81.7 24.4C82.1 34.6 82.2 34.5 77.9 36.9L74.5 38.8L75.0 44.0C75.3 46.9 76.1 56.4 76.9 65.1L78.3 81.1L82.1 85.1C86.1 89.4 87.2 93.8 84.6 94.8C82.8 95.5 83.0 97.3 85.0 98.6C86.7 99.6 87.2 101.8 86.2 104.3C85.5 106.2 34.4 106.4 33.6 104.4Z',
+  p: 'M34.5 88.1C33.8 85.2 35.2 82.8 41.4 76.6C48.6 69.6 50.5 65.5 50.5 57.5C50.5 51.6 50.4 51.3 48.5 51.3C43.1 51.3 42.3 47.1 47.4 44.6C50.1 43.3 50.2 42.5 47.8 39.1C42.2 31.2 47.1 19.1 56.8 16.9C69.3 14.1 79.6 28.3 72.5 38.8C69.7 42.8 69.8 43.0 73.4 44.7C78.4 47.1 77.3 51.3 71.6 51.3C69.6 51.3 69.5 51.6 69.5 57.2C69.5 65.0 71.6 69.3 79.1 76.9C84.4 82.3 85.2 83.5 85.3 86.4L85.4 89.7L60.2 89.9L35.0 90.2L34.5 88.1Z',
+};
+
 export function ChessPiece({ type, color, size }: ChessPieceProps) {
   const isBlack = color === 'b';
   const fill = isBlack ? '#121212' : '#FFFFFF';
   const stroke = '#121212';
 
   return (
-    <Svg
-      width={size}
-      height={size}
-      viewBox="0 0 80 100"
-      accessibilityLabel={`${color}${type}`}
-    >
+    <Svg width={size} height={size} viewBox={PIECE_VIEWBOX} accessibilityLabel={`${color}${type}`}>
       <PiecePath type={type} fill={fill} stroke={stroke} outlined={!isBlack} />
     </Svg>
   );
@@ -42,195 +48,14 @@ export function PiecePath({
   stroke: string;
   outlined: boolean;
 }) {
-  const sw = outlined ? 2.4 : 0;
-
-  /** Shared base from the asset pack — wide pedestal + thin collar line. */
-  const Pedestal = (
-    <G>
-      <Path
-        d="M18 78 H62 L58 88 H22 Z"
-        fill={fill}
-        stroke={stroke}
-        strokeWidth={sw}
-        strokeLinejoin="round"
-      />
-      <Path
-        d="M22 88 H58 L54 96 H26 Z"
-        fill={fill}
-        stroke={stroke}
-        strokeWidth={sw}
-        strokeLinejoin="round"
-      />
-      {/* Thin horizontal collar line */}
-      <Path
-        d="M26 84 H54"
-        stroke={outlined ? stroke : fill === '#121212' ? '#3A3A3A' : stroke}
-        strokeWidth="2"
-        strokeLinecap="round"
-        opacity={outlined ? 1 : 0.9}
-      />
-    </G>
+  return (
+    <Path
+      d={PIECE_PATHS[type]}
+      fill={fill}
+      stroke={stroke}
+      strokeWidth={outlined ? 5.5 : 0}
+      strokeLinejoin="round"
+      strokeLinecap="round"
+    />
   );
-
-  switch (type) {
-    case 'p':
-      return (
-        <G>
-          <Circle cx="40" cy="28" r="12" fill={fill} stroke={stroke} strokeWidth={sw} />
-          <Path
-            d="M28 52 C28 40 32 36 40 36 C48 36 52 40 52 52 L50 78 H30 Z"
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={sw}
-            strokeLinejoin="round"
-          />
-          {Pedestal}
-        </G>
-      );
-    case 'r':
-      return (
-        <G>
-          {/* Four crenellations */}
-          <Path
-            d="M22 18 H30 V28 H34 V18 H38 V28 H42 V18 H46 V28 H50 V18 H58 V40 H22 Z"
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={sw}
-            strokeLinejoin="round"
-          />
-          <Path
-            d="M26 40 H54 V78 H26 Z"
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={sw}
-          />
-          {Pedestal}
-        </G>
-      );
-    case 'n':
-      // Horse faces LEFT as in the asset sheet
-      return (
-        <G>
-          <Path
-            d="M58 78 L56 52 L60 44 L52 28 L48 18 L36 12 L22 18 L18 30 L28 34 L24 42 L20 50 L24 58 L28 78 Z"
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={sw}
-            strokeLinejoin="round"
-          />
-          {/* Notched mane */}
-          <Path
-            d="M48 18 L52 24 L46 28 L50 34 L44 38"
-            fill="none"
-            stroke={outlined ? stroke : fill === '#121212' ? '#F5F5F5' : stroke}
-            strokeWidth="2"
-            strokeLinecap="round"
-            opacity={0.001}
-          />
-          <Circle
-            cx="30"
-            cy="26"
-            r="2.2"
-            fill={outlined ? stroke : '#F5F5F5'}
-          />
-          {Pedestal}
-        </G>
-      );
-    case 'b':
-      return (
-        <G>
-          <Path
-            d="M40 12 C28 24 26 40 30 58 C32 68 34 74 40 74 C46 74 48 68 50 58 C54 40 52 24 40 12 Z"
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={sw}
-            strokeLinejoin="round"
-          />
-          {/* Mitre slit */}
-          <Path
-            d="M34 40 L48 26"
-            stroke={outlined ? stroke : '#F5F5F5'}
-            strokeWidth="3"
-            strokeLinecap="round"
-          />
-          <Path
-            d="M32 74 H48 L50 78 H30 Z"
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={sw}
-          />
-          {Pedestal}
-        </G>
-      );
-    case 'q':
-      return (
-        <G>
-          {/* Three-point crown + center orb */}
-          <Path
-            d="M20 40 L26 16 L34 34 L40 12 L46 34 L54 16 L60 40 L40 50 Z"
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={sw}
-            strokeLinejoin="round"
-          />
-          <Circle cx="40" cy="14" r="4" fill={fill} stroke={stroke} strokeWidth={sw} />
-          <Path
-            d="M26 50 C28 62 32 72 40 72 C48 72 52 62 54 50 Z"
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={sw}
-          />
-          <Path
-            d="M28 72 H52 L54 78 H26 Z"
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={sw}
-          />
-          {Pedestal}
-        </G>
-      );
-    case 'k':
-      return (
-        <G>
-          {/* Cross */}
-          <Path
-            d="M40 4 V22 M32 12 H48"
-            stroke={stroke}
-            strokeWidth="3.6"
-            strokeLinecap="round"
-          />
-          {!outlined && (
-            <Path
-              d="M40 4 V22 M32 12 H48"
-              stroke={fill}
-              strokeWidth="1.2"
-              strokeLinecap="round"
-            />
-          )}
-          {/* Crown / neck indentation */}
-          <Path
-            d="M24 36 C26 26 32 24 40 24 C48 24 54 26 56 36 L40 46 Z"
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={sw}
-            strokeLinejoin="round"
-          />
-          <Path
-            d="M26 46 C28 60 32 72 40 72 C48 72 52 60 54 46 Z"
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={sw}
-          />
-          <Path
-            d="M28 72 H52 L54 78 H26 Z"
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={sw}
-          />
-          {Pedestal}
-        </G>
-      );
-    default:
-      return null;
-  }
 }

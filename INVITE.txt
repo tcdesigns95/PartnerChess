@@ -1,1 +1,3 @@
-https://tomatoes-smoke-january-magnitude.trycloudflare.com
+https://couple-chess-opal.vercel.app
+
+Open that link to play. An invite link is the same address plus ?code=, and opening it joins that match.

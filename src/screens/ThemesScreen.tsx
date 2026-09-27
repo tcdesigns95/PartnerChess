@@ -4,9 +4,10 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { BackButton } from '../components/BackButton';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
@@ -17,7 +18,10 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Themes'>;
 
 export function ThemesScreen({}: Props) {
   const { theme, themeId, setThemeId, clearCustom } = useTheme();
+  const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const all = listThemes();
+  const short = height < 700;
 
   return (
     <SafeAreaView
@@ -30,6 +34,8 @@ export function ThemesScreen({}: Props) {
           {
             color: theme.colors.text,
             fontFamily: fontFamilyFor(theme, 'display', 'bold'),
+            fontSize: short ? 30 : 34,
+            marginTop: short ? 12 : 18,
           },
         ]}
       >
@@ -47,7 +53,9 @@ export function ThemesScreen({}: Props) {
         Skins stay on your phone. Change anytime — the match keeps going.
       </Text>
 
-      <ScrollView contentContainerStyle={styles.list}>
+      <ScrollView
+        contentContainerStyle={[styles.list, { paddingBottom: 24 + insets.bottom }]}
+      >
         {all.map((t) => {
           const active = t.id === themeId;
           return (
@@ -130,6 +138,7 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 16,
     padding: 16,
+    minHeight: 112,
   },
   swatches: { flexDirection: 'row', gap: 8 },
   swatch: {
@@ -140,8 +149,10 @@ const styles = StyleSheet.create({
   reset: {
     marginTop: 8,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 14,
+    minHeight: 52,
     paddingVertical: 14,
     alignItems: 'center',
+    justifyContent: 'center',
   },
 });

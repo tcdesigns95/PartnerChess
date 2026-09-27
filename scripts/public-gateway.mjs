@@ -19,7 +19,7 @@ proxy.on('error', (err, _req, res) => {
 });
 
 function isSocketPath(url = '') {
-  return url.startsWith('/socket.io') || url.startsWith('/health');
+  return url.startsWith('/socket.io') || url.startsWith('/api/socket') || url.startsWith('/health');
 }
 
 const server = http.createServer((req, res) => {
