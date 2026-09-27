@@ -250,7 +250,7 @@ export function GameScreen({ navigation }: Props) {
   const contentW = Math.max(0, areaW - hPad * 2);
   const contentH = Math.max(0, areaH - bottomInset);
   const sideWidth = contentW < 340 ? 36 : 42;
-  const footerH = (waiting ? 128 : 0) + (error ? 36 : 0);
+  const footerH = (waiting ? 168 : 0) + (error ? 36 : 0);
   const availW = contentW - sideWidth - 6;
   const availH = contentH - footerH;
   const boardSize = Math.max(0, Math.floor(Math.min(availW, availH)));
@@ -273,18 +273,28 @@ export function GameScreen({ navigation }: Props) {
           >
             {status}
           </Text>
-          <Text
-            numberOfLines={1}
-            style={{
-              color: theme.colors.textMuted,
-              fontFamily: fontFamilyFor(theme, 'body'),
-              fontSize: 13,
-              marginTop: 2,
-            }}
-          >
-            {session.color === 'w' ? 'White' : 'Black'}
-            {opponent ? ` vs ${opponent}` : ''}
-            {myTurn ? ' · your move' : ''}
+          <Text numberOfLines={1} style={{ marginTop: 2 }}>
+            <Text
+              style={{
+                color: theme.colors.textMuted,
+                fontFamily: fontFamilyFor(theme, 'body'),
+                fontSize: 13,
+              }}
+            >
+              {session.color === 'w' ? 'White' : 'Black'}
+              {opponent ? ` vs ${opponent}` : ''}
+            </Text>
+            {myTurn ? (
+              <Text
+                style={{
+                  color: theme.colors.text,
+                  fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                  fontSize: 13,
+                }}
+              >
+                {'  ·  your move'}
+              </Text>
+            ) : null}
           </Text>
         </View>
         <Pressable
@@ -365,7 +375,15 @@ export function GameScreen({ navigation }: Props) {
         )}
 
         {waiting && (
-          <View style={styles.wait}>
+          <View
+            style={[
+              styles.wait,
+              {
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+              },
+            ]}
+          >
             <Text
               style={{
                 color: theme.colors.textMuted,
@@ -436,7 +454,26 @@ export function GameScreen({ navigation }: Props) {
               },
             ]}
           >
-            <View style={[styles.grabber, { backgroundColor: theme.colors.border }]} />
+            <View style={styles.sheetBar}>
+              <View style={styles.sheetBarSide} />
+              <View style={[styles.grabber, { backgroundColor: theme.colors.border }]} />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close chat"
+                onPress={() => setChatOpen(false)}
+                style={styles.sheetClose}
+              >
+                <Text
+                  style={{
+                    color: theme.colors.text,
+                    fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                    fontSize: 15,
+                  }}
+                >
+                  Close
+                </Text>
+              </Pressable>
+            </View>
             <ChatPanel
               sheet
               messages={messages}
@@ -507,7 +544,7 @@ const styles = StyleSheet.create({
   },
   boardFrame: {
     borderWidth: 2,
-    borderRadius: 8,
+    borderRadius: 10,
     overflow: 'hidden',
   },
   footer: {
@@ -516,7 +553,11 @@ const styles = StyleSheet.create({
   wait: {
     alignItems: 'center',
     gap: 4,
-    paddingTop: 8,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 12,
   },
   copyBtn: {
     alignSelf: 'stretch',
@@ -550,11 +591,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingTop: 8,
   },
+  sheetBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  sheetBarSide: {
+    width: 64,
+  },
   grabber: {
-    alignSelf: 'center',
     width: 40,
     height: 4,
     borderRadius: 2,
-    marginBottom: 8,
+  },
+  sheetClose: {
+    width: 64,
+    minHeight: 44,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
   },
 });

@@ -70,7 +70,7 @@ export function CapturedSideColumn({
 const styles = StyleSheet.create({
   column: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 10,
     paddingVertical: 6,
     paddingHorizontal: 4,
     alignItems: 'center',

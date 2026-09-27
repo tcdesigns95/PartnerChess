@@ -58,17 +58,19 @@ export function ChatPanel({
         },
       ]}
     >
-      <Text
-        style={[
-          styles.title,
-          {
-            color: theme.colors.textMuted,
-            fontFamily: fontFamilyFor(theme, 'body', 'bold'),
-          },
-        ]}
-      >
-        Chat
-      </Text>
+      {!sheet && (
+        <Text
+          style={[
+            styles.title,
+            {
+              color: theme.colors.textMuted,
+              fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+            },
+          ]}
+        >
+          Chat
+        </Text>
+      )}
       <FlatList
         ref={listRef}
         data={messages}
