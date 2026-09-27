@@ -48,7 +48,7 @@ docker run -p 3001:3001 couple-chess
 
 1. One person opens the live URL → **PLAY GAME**
 2. Menu (⋯) → **Copy invite link** → send in iMessage
-3. Partner opens the link → joins
+3. She opens the link and lands in the match. The code is in the URL, so she does not type it.
 
 ## Stack
 

@@ -16,7 +16,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { ChessPiece } from '../components/ChessPiece';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
-import { getSocket } from '../lib/socket';
+import { clearInviteCodeFromUrl, getSocket } from '../lib/socket';
 import { loadDisplayName, loadSession, saveDisplayName, saveSession } from '../lib/session';
 import { useKeyboardInset } from '../lib/useKeyboardInset';
 import type { RootStackParamList } from '../lib/types';
@@ -47,9 +47,14 @@ export function HomeScreen({ navigation }: Props) {
 
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
         const params = new URLSearchParams(window.location.search);
-        const code = params.get('code');
+        const code = params.get('code')?.trim().toUpperCase();
         if (code) {
-          navigation.navigate('Join', { code: code.toUpperCase() });
+          if (existing && existing.code.toUpperCase() === code) {
+            clearInviteCodeFromUrl();
+            navigation.navigate('Game', { resume: true });
+            return;
+          }
+          navigation.navigate('Join', { code });
           return;
         }
       }
@@ -76,8 +81,9 @@ export function HomeScreen({ navigation }: Props) {
         const existing = await loadSession();
         if (!existing) return;
         if (Platform.OS === 'web' && typeof window !== 'undefined') {
-          const code = new URLSearchParams(window.location.search).get('code');
-          if (code) return;
+          const code = new URLSearchParams(window.location.search).get('code')?.trim().toUpperCase();
+          if (code && existing.code.toUpperCase() !== code) return;
+          if (code) clearInviteCodeFromUrl();
         }
         navigation.navigate('Game', { resume: true });
       })();

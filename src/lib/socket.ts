@@ -87,7 +87,7 @@ export function getSocket() {
   return socket;
 }
 
-/** Public invite URL for iMessage / Messages. */
+/** Public invite URL for iMessage / Messages. Opening it joins that match. */
 export function buildInviteLink(code: string, baseUrl?: string): string {
   const base =
     baseUrl ||
@@ -96,4 +96,14 @@ export function buildInviteLink(code: string, baseUrl?: string): string {
       : process.env.EXPO_PUBLIC_APP_URL?.trim()) ||
     'http://localhost:8081';
   return `${base.replace(/\/$/, '')}/?code=${encodeURIComponent(code)}`;
+}
+
+/** Drop `?code=` so a refresh resumes the saved seat instead of joining again. */
+export function clearInviteCodeFromUrl(): void {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has('code')) return;
+  url.searchParams.delete('code');
+  const next = `${url.pathname}${url.search}${url.hash}` || '/';
+  window.history.replaceState(window.history.state, '', next);
 }

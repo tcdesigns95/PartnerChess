@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -15,26 +15,34 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { BackButton } from '../components/BackButton';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
-import { getSocket } from '../lib/socket';
+import { clearInviteCodeFromUrl, getSocket } from '../lib/socket';
 import { loadDisplayName, saveDisplayName, saveSession } from '../lib/session';
 import { useKeyboardInset } from '../lib/useKeyboardInset';
 import type { RootStackParamList } from '../lib/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Join'>;
 
+/** One in-flight auto-join per code, including a React strict-mode remount. */
+const autoJoinStarted = new Set<string>();
+
 export function JoinScreen({ navigation, route }: Props) {
   const { theme } = useTheme();
   const { width, height } = useWindowDimensions();
   const keyboardInset = useKeyboardInset();
+  const inviteCode = (route.params?.code || '').trim().toUpperCase();
   const [name, setName] = useState('');
-  const [code, setCode] = useState((route.params?.code || '').toUpperCase());
-  const [busy, setBusy] = useState(false);
+  const [code, setCode] = useState(inviteCode);
+  const [busy, setBusy] = useState(!!inviteCode);
   const [error, setError] = useState('');
+  const [autoFailed, setAutoFailed] = useState(false);
+  const joined = useRef(false);
   const short = height < 700;
   const narrow = width < 380;
 
   useEffect(() => {
-    void loadDisplayName().then(setName);
+    void loadDisplayName().then((saved) => {
+      setName((current) => current || saved);
+    });
   }, []);
 
   useEffect(() => {
@@ -43,36 +51,66 @@ export function JoinScreen({ navigation, route }: Props) {
     }
   }, [route.params?.code]);
 
-  const join = () => {
-    const trimmedName = name.trim() || 'You';
-    const trimmedCode = code.trim().toUpperCase();
+  const enterGame = async (
+    trimmedName: string,
+    res: { game: { id: string; code: string }; playerId: string; color: 'w' | 'b' },
+  ) => {
+    if (joined.current) return;
+    joined.current = true;
+    await saveSession({
+      gameId: res.game.id,
+      playerId: res.playerId,
+      color: res.color,
+      code: res.game.code,
+      name: trimmedName,
+    });
+    clearInviteCodeFromUrl();
+    navigation.replace('Game');
+  };
+
+  const joinWith = (trimmedName: string, trimmedCode: string) => {
     if (trimmedCode.length < 4) {
+      setBusy(false);
       setError('Enter the 6-character code');
       return;
     }
     setBusy(true);
     setError('');
     void saveDisplayName(trimmedName);
-    getSocket().emit(
-      'joinGame',
-      { code: trimmedCode, name: trimmedName },
-      async (res) => {
-        setBusy(false);
+    const socket = getSocket();
+    const emit = () => {
+      socket.emit('joinGame', { code: trimmedCode, name: trimmedName }, (res) => {
         if (!res.ok) {
+          setBusy(false);
           setError(res.error);
+          if (inviteCode && trimmedCode === inviteCode) setAutoFailed(true);
+          autoJoinStarted.delete(trimmedCode);
           return;
         }
-        await saveSession({
-          gameId: res.game.id,
-          playerId: res.playerId,
-          color: res.color,
-          code: res.game.code,
-          name: trimmedName,
-        });
-        navigation.replace('Game');
-      },
-    );
+        void enterGame(trimmedName, res);
+      });
+    };
+    if (socket.connected) emit();
+    else socket.once('connect', emit);
   };
+
+  useEffect(() => {
+    if (!inviteCode || autoJoinStarted.has(inviteCode)) return;
+    autoJoinStarted.add(inviteCode);
+    void (async () => {
+      const saved = (await loadDisplayName()).trim() || 'You';
+      setName(saved);
+      joinWith(saved, inviteCode);
+    })();
+    // One attempt per invite code. joinWith from this commit talks to the socket.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inviteCode]);
+
+  const join = () => {
+    joinWith(name.trim() || 'You', code.trim().toUpperCase());
+  };
+
+  const joiningFromLink = !!inviteCode && !autoFailed && !error;
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]}>
@@ -97,7 +135,7 @@ export function JoinScreen({ navigation, route }: Props) {
               },
             ]}
           >
-            Join match
+            {joiningFromLink ? 'Joining match' : 'Join match'}
           </Text>
           <Text
             style={[
@@ -108,9 +146,14 @@ export function JoinScreen({ navigation, route }: Props) {
               },
             ]}
           >
-            Enter the code your partner shared.
+            {joiningFromLink
+              ? 'Opening the board…'
+              : 'Enter the code your partner shared.'}
           </Text>
 
+          {joiningFromLink ? (
+            <ActivityIndicator color={theme.colors.text} style={{ marginTop: 12 }} />
+          ) : (
           <View style={styles.form}>
             <TextInput
               value={name}
@@ -191,6 +234,7 @@ export function JoinScreen({ navigation, route }: Props) {
               </Text>
             )}
           </View>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
