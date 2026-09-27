@@ -17,6 +17,8 @@ type ChatPanelProps = {
   myPlayerId: string;
   onSend: (text: string) => void;
   disabled?: boolean;
+  /** Fill a bottom sheet. The board stays put underneath. */
+  sheet?: boolean;
 };
 
 export function ChatPanel({
@@ -24,6 +26,7 @@ export function ChatPanel({
   myPlayerId,
   onSend,
   disabled,
+  sheet,
 }: ChatPanelProps) {
   const { theme } = useTheme();
   const [text, setText] = useState('');
@@ -48,8 +51,9 @@ export function ChatPanel({
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={[
         styles.wrap,
+        sheet && styles.sheetWrap,
         {
-          backgroundColor: theme.colors.surface,
+          backgroundColor: sheet ? 'transparent' : theme.colors.surface,
           borderColor: theme.colors.border,
         },
       ]}
@@ -152,6 +156,8 @@ export function ChatPanel({
             {
               backgroundColor: theme.colors.accent,
               opacity: pressed || disabled || !text.trim() ? 0.6 : 1,
+              minHeight: 48,
+              minWidth: 72,
             },
           ]}
         >
@@ -176,6 +182,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 12,
     padding: 10,
+  },
+  sheetWrap: {
+    minHeight: 0,
+    borderWidth: 0,
+    borderRadius: 0,
+    padding: 0,
   },
   title: {
     fontSize: 12,
@@ -213,14 +225,16 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
+    paddingVertical: 12,
+    fontSize: 16,
+    minHeight: 48,
   },
   send: {
-    borderRadius: 10,
-    paddingHorizontal: 14,
+    borderRadius: 12,
+    paddingHorizontal: 16,
     justifyContent: 'center',
+    alignItems: 'center',
   },
 });

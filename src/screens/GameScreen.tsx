@@ -8,9 +8,10 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
@@ -22,6 +23,7 @@ import { ChatIcon, GameMenu, MenuButton } from '../components/GameMenu';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
 import { getSocket, buildInviteLink } from '../lib/socket';
 import { clearSession, loadSession, saveSession } from '../lib/session';
+import { useKeyboardInset } from '../lib/useKeyboardInset';
 import type { ChatMessage, PublicGame, RootStackParamList, Session } from '../lib/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
@@ -33,10 +35,14 @@ export function GameScreen({ navigation }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState('…');
   const [error, setError] = useState('');
-  const [boardAreaWidth, setBoardAreaWidth] = useState(280);
+  const [bodyBox, setBodyBox] = useState({ w: 0, h: 0 });
   const [menuOpen, setMenuOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const sessionRef = useRef<Session | null>(null);
+  const { width: winW, height: winH } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const keyboardInset = useKeyboardInset();
 
   const applyGame = useCallback((g: PublicGame) => {
     setGame(g);
@@ -137,14 +143,8 @@ export function GameScreen({ navigation }: Props) {
   const copyInvite = async () => {
     if (!game?.code) return;
     await Clipboard.setStringAsync(buildInviteLink(game.code));
-    if (Platform.OS === 'web') {
-      // brief feedback via status
-      const prev = status;
-      setStatus('Invite copied');
-      setTimeout(() => setStatus(prev), 1200);
-    } else {
-      Alert.alert('Copied', 'Invite link ready to paste.');
-    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
   };
 
   const onMove = (from: string, to: string, promotion?: string) => {
@@ -240,10 +240,21 @@ export function GameScreen({ navigation }: Props) {
   }
 
   const myTurn = game.status === 'active' && game.turn === session.color;
+  const waiting = game.status === 'waiting';
   const opponent =
     session.color === 'w' ? game.players.b?.name : game.players.w?.name;
-  const sideWidth = 48;
-  const boardSize = Math.max(180, boardAreaWidth - sideWidth - 8);
+  const bottomInset = Math.max(insets.bottom, 8);
+  const hPad = 10;
+  const areaW = bodyBox.w || winW;
+  const areaH = bodyBox.h || Math.max(280, winH - insets.top - 64);
+  const contentW = Math.max(0, areaW - hPad * 2);
+  const contentH = Math.max(0, areaH - bottomInset);
+  const sideWidth = contentW < 340 ? 36 : 42;
+  const footerH = (waiting ? 128 : 0) + (error ? 36 : 0);
+  const availW = contentW - sideWidth - 6;
+  const availH = contentH - footerH;
+  const boardSize = Math.max(0, Math.floor(Math.min(availW, availH)));
+  const chatHeight = Math.max(220, Math.min(420, Math.round(winH * 0.46)));
 
   return (
     <SafeAreaView
@@ -251,17 +262,19 @@ export function GameScreen({ navigation }: Props) {
       edges={['top', 'left', 'right']}
     >
       <View style={styles.topBar}>
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
           <Text
+            numberOfLines={1}
             style={{
               color: theme.colors.text,
               fontFamily: fontFamilyFor(theme, 'display', 'bold'),
-              fontSize: 20,
+              fontSize: 22,
             }}
           >
             {status}
           </Text>
           <Text
+            numberOfLines={1}
             style={{
               color: theme.colors.textMuted,
               fontFamily: fontFamilyFor(theme, 'body'),
@@ -275,28 +288,37 @@ export function GameScreen({ navigation }: Props) {
           </Text>
         </View>
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={chatOpen ? 'Close chat' : 'Open chat'}
           onPress={() => setChatOpen((v) => !v)}
           style={[
             styles.iconBtn,
             {
-              backgroundColor: theme.colors.surface,
-              borderColor: theme.colors.border,
+              backgroundColor: chatOpen ? theme.colors.text : theme.colors.surface,
+              borderColor: chatOpen ? theme.colors.text : theme.colors.border,
             },
           ]}
         >
-          <ChatIcon color={theme.colors.text} />
+          <ChatIcon
+            color={chatOpen ? theme.colors.accentText : theme.colors.text}
+            dotColor={chatOpen ? theme.colors.text : theme.colors.surface}
+          />
         </Pressable>
         <MenuButton onPress={() => setMenuOpen(true)} />
       </View>
 
-      <View style={styles.body}>
-        <View
-          style={styles.boardRow}
-          onLayout={(e) => {
-            const w = Math.floor(e.nativeEvent.layout.width);
-            if (w > 0) setBoardAreaWidth(w);
-          }}
-        >
+      <View
+        style={[styles.body, { paddingBottom: bottomInset, paddingHorizontal: hPad }]}
+        onLayout={(e) => {
+          const w = Math.floor(e.nativeEvent.layout.width);
+          const h = Math.floor(e.nativeEvent.layout.height);
+          if (w > 0 && h > 0) {
+            setBodyBox((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+          }
+        }}
+      >
+        <View style={styles.boardSlot}>
+        <View style={styles.boardRow}>
           <View
             style={[
               styles.boardFrame,
@@ -320,27 +342,103 @@ export function GameScreen({ navigation }: Props) {
               fen={game.fen}
               myColor={session.color}
               width={sideWidth}
-              tileSize={34}
+              tileSize={Math.max(24, sideWidth - 8)}
             />
           </View>
         </View>
+        </View>
 
+        <View style={[styles.footer, footerH > 0 && { minHeight: footerH }]}>
         {!!error && (
           <Text
+            numberOfLines={2}
             style={{
               color: theme.colors.danger,
               fontFamily: fontFamilyFor(theme, 'body'),
               textAlign: 'center',
               marginTop: 8,
+              fontSize: 13,
             }}
           >
             {error}
           </Text>
         )}
 
-        {chatOpen && (
-          <View style={styles.chatSlot}>
+        {waiting && (
+          <View style={styles.wait}>
+            <Text
+              style={{
+                color: theme.colors.textMuted,
+                fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                fontSize: 12,
+                letterSpacing: 1.2,
+                textTransform: 'uppercase',
+              }}
+            >
+              Share this code
+            </Text>
+            <Text
+              selectable
+              style={{
+                color: theme.colors.text,
+                fontFamily: fontFamilyFor(theme, 'display', 'bold'),
+                fontSize: contentH < 560 ? 28 : 32,
+                lineHeight: contentH < 560 ? 32 : 36,
+                letterSpacing: contentW < 340 ? 3 : 5,
+              }}
+            >
+              {game.code}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Copy invite link"
+              onPress={() => void copyInvite()}
+              style={({ pressed }) => [
+                styles.copyBtn,
+                {
+                  backgroundColor: theme.colors.text,
+                  opacity: pressed ? 0.8 : 1,
+                },
+              ]}
+            >
+              <Text
+                style={{
+                  color: theme.colors.accentText,
+                  fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                  fontSize: 16,
+                  letterSpacing: 0.4,
+                }}
+              >
+                {copied ? 'Invite copied' : 'Copy invite'}
+              </Text>
+            </Pressable>
+          </View>
+        )}
+        </View>
+      </View>
+
+      {chatOpen && (
+        <View style={styles.chatLayer} pointerEvents="box-none">
+          <Pressable
+            accessibilityLabel="Close chat"
+            style={styles.chatBackdrop}
+            onPress={() => setChatOpen(false)}
+          />
+          <View
+            style={[
+              styles.chatSheet,
+              {
+                height: chatHeight,
+                marginBottom: keyboardInset,
+                paddingBottom: Math.max(insets.bottom, 10),
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+              },
+            ]}
+          >
+            <View style={[styles.grabber, { backgroundColor: theme.colors.border }]} />
             <ChatPanel
+              sheet
               messages={messages}
               myPlayerId={session.playerId}
               onSend={(text) => {
@@ -352,13 +450,13 @@ export function GameScreen({ navigation }: Props) {
               }}
             />
           </View>
-        )}
-      </View>
+        </View>
+      )}
 
       <GameMenu
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
-        subtitle={game.code}
+        subtitle={`Code ${game.code}`}
         items={[
           { label: 'Copy invite link', onPress: () => void copyInvite() },
           { label: 'Themes', onPress: () => navigation.navigate('Themes') },
@@ -386,8 +484,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   iconBtn: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: 12,
     borderWidth: 1,
     alignItems: 'center',
@@ -395,24 +493,68 @@ const styles = StyleSheet.create({
   },
   body: {
     flex: 1,
-    paddingHorizontal: 12,
-    paddingBottom: 12,
+  },
+  boardSlot: {
+    flex: 1,
+    justifyContent: 'center',
   },
   boardRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
+    justifyContent: 'center',
+    gap: 6,
     width: '100%',
   },
   boardFrame: {
     borderWidth: 2,
-    borderRadius: 6,
+    borderRadius: 8,
     overflow: 'hidden',
-    padding: 0,
   },
-  chatSlot: {
-    flex: 1,
-    marginTop: 12,
-    minHeight: 160,
+  footer: {
+    justifyContent: 'flex-end',
+  },
+  wait: {
+    alignItems: 'center',
+    gap: 4,
+    paddingTop: 8,
+  },
+  copyBtn: {
+    alignSelf: 'stretch',
+    minHeight: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  chatLayer: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    justifyContent: 'flex-end',
+    zIndex: 20,
+  },
+  chatBackdrop: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(18, 18, 18, 0.28)',
+  },
+  chatSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingTop: 8,
+  },
+  grabber: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    marginBottom: 8,
   },
 });

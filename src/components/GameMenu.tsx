@@ -6,6 +6,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
 
@@ -61,6 +62,7 @@ export function GearIcon({ color, size = 22 }: { color: string; size?: number })
 
 export function GameMenu({ open, onClose, items, subtitle }: GameMenuProps) {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
 
   return (
     <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
@@ -71,6 +73,7 @@ export function GameMenu({ open, onClose, items, subtitle }: GameMenuProps) {
             {
               backgroundColor: theme.colors.surface,
               borderColor: theme.colors.border,
+              paddingBottom: Math.max(insets.bottom, 12) + 16,
             },
           ]}
           onPress={(e) => e.stopPropagation()}
@@ -126,11 +129,19 @@ export function GameMenu({ open, onClose, items, subtitle }: GameMenuProps) {
               </Text>
             </Pressable>
           ))}
-          <Pressable onPress={onClose} style={{ marginTop: 8, alignItems: 'center' }}>
+          <Pressable
+            onPress={onClose}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.close,
+              { opacity: pressed ? 0.7 : 1 },
+            ]}
+          >
             <Text
               style={{
                 color: theme.colors.textMuted,
-                fontFamily: fontFamilyFor(theme, 'body'),
+                fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                fontSize: 16,
               }}
             >
               Close
@@ -143,24 +154,32 @@ export function GameMenu({ open, onClose, items, subtitle }: GameMenuProps) {
 }
 
 /** Tiny chat toggle icon. */
-export function ChatIcon({ color, size = 22 }: { color: string; size?: number }) {
+export function ChatIcon({
+  color,
+  dotColor = '#FAF7F1',
+  size = 22,
+}: {
+  color: string;
+  dotColor?: string;
+  size?: number;
+}) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path
         d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"
         fill={color}
       />
-      <Circle cx="8" cy="10.5" r="1.2" fill="#FAF7F1" />
-      <Circle cx="12" cy="10.5" r="1.2" fill="#FAF7F1" />
-      <Circle cx="16" cy="10.5" r="1.2" fill="#FAF7F1" />
+      <Circle cx="8" cy="10.5" r="1.2" fill={dotColor} />
+      <Circle cx="12" cy="10.5" r="1.2" fill={dotColor} />
+      <Circle cx="16" cy="10.5" r="1.2" fill={dotColor} />
     </Svg>
   );
 }
 
 const styles = StyleSheet.create({
   menuBtn: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: 12,
     borderWidth: 1,
     alignItems: 'center',
@@ -175,7 +194,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderWidth: 1,
-    padding: 20,
+    paddingHorizontal: 16,
+    paddingTop: 16,
     paddingBottom: 28,
   },
   sheetHead: {
@@ -186,8 +206,16 @@ const styles = StyleSheet.create({
   item: {
     borderWidth: 1,
     borderRadius: 12,
+    minHeight: 48,
     paddingVertical: 14,
     paddingHorizontal: 14,
     marginBottom: 8,
+    justifyContent: 'center',
+  },
+  close: {
+    marginTop: 4,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

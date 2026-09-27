@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,16 +18,23 @@ import { ChessPiece } from '../components/ChessPiece';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
 import { getSocket } from '../lib/socket';
 import { loadDisplayName, loadSession, saveDisplayName, saveSession } from '../lib/session';
+import { useKeyboardInset } from '../lib/useKeyboardInset';
 import type { RootStackParamList } from '../lib/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
 export function HomeScreen({ navigation }: Props) {
   const { theme, setThemeId } = useTheme();
+  const { height, width } = useWindowDimensions();
+  const keyboardInset = useKeyboardInset();
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [connected, setConnected] = useState(false);
+
+  const short = height < 700;
+  const narrow = width < 380;
+  const pieceSize = short || narrow ? 28 : 34;
 
   useEffect(() => {
     void setThemeId('ink');
@@ -100,148 +110,200 @@ export function HomeScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]}>
       <StatusBar style="dark" />
-      <View style={styles.hero}>
-        <View style={styles.pieceRow}>
-          <ChessPiece type="k" color="b" size={36} />
-          <ChessPiece type="q" color="b" size={36} />
-          <ChessPiece type="b" color="b" size={36} />
-          <ChessPiece type="n" color="b" size={36} />
-          <ChessPiece type="r" color="b" size={36} />
-          <ChessPiece type="p" color="b" size={36} />
-        </View>
-        <Text
-          style={[
-            styles.brand,
-            {
-              color: theme.colors.text,
-              fontFamily: fontFamilyFor(theme, 'display', 'bold'),
-            },
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
+          contentContainerStyle={[
+            styles.scroll,
+            { paddingBottom: 16 + keyboardInset },
           ]}
         >
-          Couple Chess
-        </Text>
-      </View>
-
-      <View style={styles.form}>
-        <TextInput
-          value={name}
-          onChangeText={setName}
-          placeholder="Your name"
-          placeholderTextColor={theme.colors.textMuted}
-          style={[
-            styles.input,
-            {
-              color: theme.colors.text,
-              borderColor: theme.colors.border,
-              backgroundColor: theme.colors.surface,
-              fontFamily: fontFamilyFor(theme, 'body'),
-            },
-          ]}
-        />
-
-        <Pressable
-          onPress={createGame}
-          disabled={busy}
-          style={({ pressed }) => [
-            styles.play,
-            {
-              backgroundColor: theme.colors.surface,
-              borderColor: theme.colors.text,
-              opacity: pressed || busy ? 0.75 : 1,
-            },
-          ]}
-        >
-          {busy ? (
-            <ActivityIndicator color={theme.colors.text} />
-          ) : (
+          <View style={[styles.hero, { marginTop: short ? 12 : 28 }]}>
+            <View style={styles.pieceRow}>
+              <ChessPiece type="k" color="b" size={pieceSize} />
+              <ChessPiece type="q" color="b" size={pieceSize} />
+              <ChessPiece type="b" color="b" size={pieceSize} />
+              <ChessPiece type="n" color="b" size={pieceSize} />
+              <ChessPiece type="r" color="b" size={pieceSize} />
+              <ChessPiece type="p" color="b" size={pieceSize} />
+            </View>
+            <Text
+              style={[
+                styles.brand,
+                {
+                  color: theme.colors.text,
+                  fontFamily: fontFamilyFor(theme, 'display', 'bold'),
+                  fontSize: short ? 32 : 40,
+                },
+              ]}
+            >
+              Couple Chess
+            </Text>
             <Text
               style={{
-                color: theme.colors.text,
-                fontFamily: fontFamilyFor(theme, 'body', 'bold'),
-                fontSize: 18,
-                letterSpacing: 2,
+                color: theme.colors.textMuted,
+                fontFamily: fontFamilyFor(theme, 'body'),
+                fontSize: 15,
+                textAlign: 'center',
               }}
             >
-              PLAY GAME
+              A board for two. One link.
             </Text>
-          )}
-        </Pressable>
+          </View>
 
-        <Pressable onPress={() => navigation.navigate('Join')} style={styles.linkBtn}>
-          <Text
-            style={{
-              color: theme.colors.textMuted,
-              fontFamily: fontFamilyFor(theme, 'body', 'bold'),
-              letterSpacing: 1,
-            }}
-          >
-            JOIN WITH CODE
-          </Text>
-        </Pressable>
+          <View style={styles.form}>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="Your name"
+              placeholderTextColor={theme.colors.textMuted}
+              autoCapitalize="words"
+              autoCorrect={false}
+              returnKeyType="go"
+              onSubmitEditing={createGame}
+              style={[
+                styles.input,
+                {
+                  color: theme.colors.text,
+                  borderColor: theme.colors.border,
+                  backgroundColor: theme.colors.surface,
+                  fontFamily: fontFamilyFor(theme, 'body'),
+                },
+              ]}
+            />
 
-        {!!error && (
-          <Text
-            style={{
-              color: theme.colors.danger,
-              textAlign: 'center',
-              fontFamily: fontFamilyFor(theme, 'body'),
-            }}
-          >
-            {error}
-          </Text>
-        )}
+            <Pressable
+              accessibilityRole="button"
+              onPress={createGame}
+              disabled={busy}
+              style={({ pressed }) => [
+                styles.play,
+                {
+                  backgroundColor: theme.colors.text,
+                  opacity: pressed || busy ? 0.8 : 1,
+                },
+              ]}
+            >
+              {busy ? (
+                <ActivityIndicator color={theme.colors.accentText} />
+              ) : (
+                <Text
+                  style={{
+                    color: theme.colors.accentText,
+                    fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                    fontSize: 17,
+                    letterSpacing: 1.4,
+                  }}
+                >
+                  PLAY GAME
+                </Text>
+              )}
+            </Pressable>
 
-        <Text
-          style={{
-            marginTop: 20,
-            textAlign: 'center',
-            color: theme.colors.textMuted,
-            fontFamily: fontFamilyFor(theme, 'body'),
-            fontSize: 11,
-          }}
-        >
-          {connected ? '● live' : '○ connecting'}
-        </Text>
-      </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => navigation.navigate('Join')}
+              style={({ pressed }) => [
+                styles.linkBtn,
+                {
+                  borderColor: theme.colors.text,
+                  backgroundColor: theme.colors.surface,
+                  opacity: pressed ? 0.75 : 1,
+                },
+              ]}
+            >
+              <Text
+                style={{
+                  color: theme.colors.text,
+                  fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                  letterSpacing: 1,
+                  fontSize: 15,
+                }}
+              >
+                JOIN WITH CODE
+              </Text>
+            </Pressable>
+
+            {!!error && (
+              <Text
+                style={{
+                  color: theme.colors.danger,
+                  textAlign: 'center',
+                  fontFamily: fontFamilyFor(theme, 'body'),
+                }}
+              >
+                {error}
+              </Text>
+            )}
+
+            <Text
+              style={{
+                marginTop: 8,
+                textAlign: 'center',
+                color: theme.colors.textMuted,
+                fontFamily: fontFamilyFor(theme, 'body'),
+                fontSize: 12,
+              }}
+            >
+              {connected ? '● live' : '○ connecting'}
+            </Text>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, padding: 24, justifyContent: 'space-between' },
+  safe: { flex: 1 },
+  flex: { flex: 1 },
+  scroll: {
+    flexGrow: 1,
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 8,
+  },
   hero: {
-    marginTop: 48,
     alignItems: 'center',
-    gap: 18,
+    gap: 12,
   },
   pieceRow: {
     flexDirection: 'row',
-    gap: 4,
+    gap: 2,
     alignItems: 'flex-end',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
   },
   brand: {
-    fontSize: 40,
     letterSpacing: -0.5,
+    textAlign: 'center',
   },
   form: {
     gap: 12,
-    marginBottom: 24,
+    marginTop: 24,
   },
   input: {
     borderWidth: 1,
     borderRadius: 14,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    minHeight: 52,
     fontSize: 16,
   },
   play: {
-    borderWidth: 2,
     borderRadius: 14,
-    paddingVertical: 16,
+    minHeight: 54,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   linkBtn: {
-    paddingVertical: 12,
+    minHeight: 52,
+    borderRadius: 14,
+    borderWidth: 2,
     alignItems: 'center',
+    justifyContent: 'center',
   },
 });
