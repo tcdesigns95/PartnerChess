@@ -31,6 +31,7 @@ export function ChessBoard({
   onMove,
 }: ChessBoardProps) {
   const { theme } = useTheme();
+  const cyber = theme.boardSkin === 'cyber';
   const [selected, setSelected] = useState<string | null>(null);
   const [boardWidth, setBoardWidth] = useState(320);
 
@@ -136,6 +137,7 @@ export function ChessBoard({
                       ? theme.colors.lightSquare
                       : theme.colors.darkSquare,
                   },
+                  cyber && styles.cyberSquare,
                   isSelected && {
                     borderWidth: 2,
                     borderColor: theme.colors.accent,
@@ -179,9 +181,11 @@ export function ChessBoard({
                       styles.coord,
                       styles.rankCoord,
                       {
-                        color: isLight
-                          ? theme.colors.darkSquare
-                          : theme.colors.lightSquare,
+                        color: cyber
+                          ? 'rgba(0, 240, 255, 0.7)'
+                          : isLight
+                            ? theme.colors.darkSquare
+                            : theme.colors.lightSquare,
                         fontFamily: fontFamilyFor(theme, 'body'),
                         opacity: 0.55,
                       },
@@ -197,9 +201,11 @@ export function ChessBoard({
                       styles.coord,
                       styles.fileCoord,
                       {
-                        color: isLight
-                          ? theme.colors.darkSquare
-                          : theme.colors.lightSquare,
+                        color: cyber
+                          ? 'rgba(0, 240, 255, 0.7)'
+                          : isLight
+                            ? theme.colors.darkSquare
+                            : theme.colors.lightSquare,
                         fontFamily: fontFamilyFor(theme, 'body'),
                         opacity: 0.55,
                       },
@@ -230,6 +236,10 @@ const styles = StyleSheet.create({
   square: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  cyberSquare: {
+    borderWidth: 1,
+    borderColor: 'rgba(0, 240, 255, 0.28)',
   },
   lastMoveBorder: {
     position: 'absolute',

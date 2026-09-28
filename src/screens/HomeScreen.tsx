@@ -24,7 +24,7 @@ import type { RootStackParamList } from '../lib/types';
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
 export function HomeScreen({ navigation }: Props) {
-  const { theme, setThemeId } = useTheme();
+  const { theme, setThemeId, fontsReady } = useTheme();
   const { height, width } = useWindowDimensions();
   const keyboardInset = useKeyboardInset();
   const [name, setName] = useState('');
@@ -37,8 +37,9 @@ export function HomeScreen({ navigation }: Props) {
   const pieceSize = short || narrow ? 28 : 34;
 
   useEffect(() => {
-    void setThemeId('ink');
-  }, [setThemeId]);
+    if (!fontsReady) return;
+    void setThemeId('cyber');
+  }, [fontsReady, setThemeId]);
 
   useEffect(() => {
     void (async () => {
@@ -115,7 +116,7 @@ export function HomeScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]}>
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -130,12 +131,12 @@ export function HomeScreen({ navigation }: Props) {
         >
           <View style={[styles.hero, { marginTop: short ? 12 : 28 }]}>
             <View style={styles.pieceRow}>
+              <ChessPiece type="k" color="w" size={pieceSize} />
+              <ChessPiece type="q" color="w" size={pieceSize} />
+              <ChessPiece type="n" color="w" size={pieceSize} />
               <ChessPiece type="k" color="b" size={pieceSize} />
               <ChessPiece type="q" color="b" size={pieceSize} />
-              <ChessPiece type="b" color="b" size={pieceSize} />
               <ChessPiece type="n" color="b" size={pieceSize} />
-              <ChessPiece type="r" color="b" size={pieceSize} />
-              <ChessPiece type="p" color="b" size={pieceSize} />
             </View>
             <Text
               style={[

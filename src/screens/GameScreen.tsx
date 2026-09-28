@@ -345,8 +345,13 @@ export function GameScreen({ navigation }: Props) {
               styles.boardFrame,
               {
                 width: boardSize,
-                borderColor: theme.colors.text,
+                borderColor:
+                  theme.boardSkin === 'cyber' ? theme.colors.accent : theme.colors.text,
                 backgroundColor: theme.colors.surface,
+                boxShadow:
+                  theme.boardSkin === 'cyber'
+                    ? '0 0 18px rgba(0, 240, 255, 0.4)'
+                    : undefined,
               },
             ]}
           >
