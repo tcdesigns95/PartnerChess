@@ -21,6 +21,8 @@ type ChessBoardProps = {
   interactive: boolean;
   lastMove?: { from: string; to: string };
   onMove: (from: string, to: string, promotion?: string) => void;
+  /** Pawn reached the last rank. The player picks the piece. */
+  onPromote?: (from: string, to: string) => void;
 };
 
 export function ChessBoard({
@@ -29,6 +31,7 @@ export function ChessBoard({
   interactive,
   lastMove,
   onMove,
+  onPromote,
 }: ChessBoardProps) {
   const { theme } = useTheme();
   const cyber = theme.boardSkin === 'cyber';
@@ -88,6 +91,11 @@ export function ChessBoard({
           moving?.type === 'p' &&
           ((moving.color === 'w' && square[1] === '8') ||
             (moving.color === 'b' && square[1] === '1'));
+        if (needsPromotion && onPromote) {
+          onPromote(selected, square);
+          setSelected(null);
+          return;
+        }
         onMove(selected, square, needsPromotion ? 'q' : undefined);
         setSelected(null);
         return;
@@ -126,6 +134,7 @@ export function ChessBoard({
             return (
               <Pressable
                 key={square}
+                accessibilityLabel={square}
                 onPress={() => handleSquarePress(square)}
                 // Keep SVG pieces from eating taps on web
                 style={[

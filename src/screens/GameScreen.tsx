@@ -17,7 +17,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
 import { Chess } from 'chess.js';
 import { ChessBoard } from '../components/ChessBoard';
-import { CapturedSideColumn } from '../components/CapturedSideColumn';
+import { PlayerCaptureRow } from '../components/CapturedSideColumn';
+import { ChessPiece, type PieceType } from '../components/ChessPiece';
 import { ChatPanel } from '../components/ChatPanel';
 import { ChatIcon, GameMenu, MenuButton } from '../components/GameMenu';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
@@ -38,25 +39,61 @@ export function GameScreen({ navigation }: Props) {
   const [bodyBox, setBodyBox] = useState({ w: 0, h: 0 });
   const [menuOpen, setMenuOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
+  const [chatPreview, setChatPreview] = useState<ChatMessage | null>(null);
+  const [promo, setPromo] = useState<{ from: string; to: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const sharePrompted = useRef(false);
   const sessionRef = useRef<Session | null>(null);
+  const chatOpenRef = useRef(false);
+  const revisionRef = useRef(0);
+  const pendingMoveRef = useRef(false);
+  const chatHydrated = useRef(false);
+  const seenChatIds = useRef(new Set<string>());
   const { width: winW, height: winH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const keyboardInset = useKeyboardInset();
 
-  const applyGame = useCallback((g: PublicGame) => {
+  const absorbChat = useCallback((incoming: ChatMessage[], notify: boolean) => {
+    for (const m of incoming) {
+      if (seenChatIds.current.has(m.id)) continue;
+      seenChatIds.current.add(m.id);
+      if (!notify) continue;
+      if (m.playerId === sessionRef.current?.playerId) continue;
+      if (chatOpenRef.current) continue;
+      setUnread((n) => n + 1);
+      setChatPreview(m);
+    }
+  }, []);
+
+  const applyGame = useCallback((g: PublicGame, force = false) => {
+    const rev = g.updatedAt ?? 0;
+    // Never paint an older snapshot over a move that already landed.
+    if (rev < revisionRef.current) return;
+    // While a move is in flight, ignore a repeat of the pre-move snapshot.
+    // A failed move passes force so the server position can replace the optimistic one.
+    if (!force && pendingMoveRef.current && rev === revisionRef.current) return;
+    revisionRef.current = rev;
+    pendingMoveRef.current = false;
     setGame(g);
-    setMessages(g.chat);
+    // The first snapshot is history. Later snapshots can carry a message the live event missed.
+    absorbChat(g.chat ?? [], chatHydrated.current);
+    chatHydrated.current = true;
+    setMessages((prev) => {
+      const map = new Map<string, ChatMessage>();
+      for (const m of g.chat ?? []) map.set(m.id, m);
+      for (const m of prev) if (!map.has(m.id)) map.set(m.id, m);
+      return [...map.values()].sort((a, b) => a.at - b.at);
+    });
     if (g.status === 'waiting') setStatus('Waiting');
     else if (g.status === 'finished') setStatus(g.result || 'Over');
     else {
       const turnLabel = g.turn === 'w' ? 'White' : 'Black';
       setStatus(g.isCheck ? `${turnLabel} · check` : turnLabel);
     }
-  }, []);
+  }, [absorbChat]);
 
-  const rejoin = useCallback(() => {
+  const rejoin = useCallback((force = false) => {
     const s = sessionRef.current;
     if (!s) return;
     const socket = getSocket();
@@ -70,7 +107,7 @@ export function GameScreen({ navigation }: Props) {
             return;
           }
           setError('');
-          applyGame(res.game);
+          applyGame(res.game, force);
           void saveSession({ ...s, code: res.game.code });
         },
       );
@@ -83,6 +120,7 @@ export function GameScreen({ navigation }: Props) {
     const socket = getSocket();
     const onGame = (g: PublicGame) => applyGame(g);
     const onChat = (msg: ChatMessage) => {
+      absorbChat([msg], true);
       setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
     };
     const onConnect = () => rejoin();
@@ -94,7 +132,7 @@ export function GameScreen({ navigation }: Props) {
       socket.off('chatMessage', onChat);
       socket.off('connect', onConnect);
     };
-  }, [applyGame, rejoin]);
+  }, [absorbChat, applyGame, rejoin]);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,6 +198,8 @@ export function GameScreen({ navigation }: Props) {
 
   const onMove = (from: string, to: string, promotion?: string) => {
     if (!session || !game) return;
+    pendingMoveRef.current = true;
+    const startedRev = revisionRef.current;
     try {
       const draft = new Chess(game.fen);
       const opts: { from: string; to: string; promotion?: string } = { from, to };
@@ -182,6 +222,15 @@ export function GameScreen({ navigation }: Props) {
       // server wins
     }
 
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      if (pendingMoveRef.current && revisionRef.current === startedRev) {
+        pendingMoveRef.current = false;
+        rejoin(true);
+      }
+    }, 4500);
+
     getSocket().emit(
       'makeMove',
       {
@@ -192,15 +241,40 @@ export function GameScreen({ navigation }: Props) {
         promotion,
       },
       (res) => {
+        settled = true;
+        clearTimeout(timer);
         if (!res.ok) {
+          pendingMoveRef.current = false;
           setError(res.error);
-          rejoin();
-        } else {
-          setError('');
-          applyGame(res.game);
+          rejoin(true);
+          return;
         }
+        setError('');
+        applyGame(res.game);
       },
     );
+  };
+
+  useEffect(() => {
+    if (!chatPreview) return;
+    const timer = setTimeout(() => setChatPreview(null), 4500);
+    return () => clearTimeout(timer);
+  }, [chatPreview]);
+
+  const openChat = () => {
+    chatOpenRef.current = true;
+    setChatOpen(true);
+    setUnread(0);
+    setChatPreview(null);
+  };
+
+  const toggleChat = () => {
+    if (chatOpenRef.current) {
+      chatOpenRef.current = false;
+      setChatOpen(false);
+      return;
+    }
+    openChat();
   };
 
   const resign = () => {
@@ -259,10 +333,10 @@ export function GameScreen({ navigation }: Props) {
   const areaH = bodyBox.h || Math.max(280, winH - insets.top - 64);
   const contentW = Math.max(0, areaW - hPad * 2);
   const contentH = Math.max(0, areaH - bottomInset);
-  const sideWidth = contentW < 340 ? 36 : 42;
   const footerH = error ? 36 : 0;
-  const availW = contentW - sideWidth - 6;
-  const availH = contentH - footerH;
+  const captureRowH = 26;
+  const availW = contentW;
+  const availH = contentH - footerH - captureRowH * 2 - 8;
   const boardSize = Math.max(0, Math.floor(Math.min(availW, availH)));
   const chatHeight = Math.max(220, Math.min(420, Math.round(winH * 0.46)));
 
@@ -310,8 +384,10 @@ export function GameScreen({ navigation }: Props) {
         </View>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={chatOpen ? 'Close chat' : 'Open chat'}
-          onPress={() => setChatOpen((v) => !v)}
+          accessibilityLabel={
+            unread > 0 ? `Open chat, ${unread} new` : chatOpen ? 'Close chat' : 'Open chat'
+          }
+          onPress={toggleChat}
           style={[
             styles.iconBtn,
             {
@@ -324,6 +400,16 @@ export function GameScreen({ navigation }: Props) {
             color={chatOpen ? theme.colors.accentText : theme.colors.text}
             dotColor={chatOpen ? theme.colors.text : theme.colors.surface}
           />
+          {unread > 0 && (
+            <View
+              style={[
+                styles.unread,
+                { backgroundColor: theme.colors.danger, borderColor: theme.colors.background },
+              ]}
+            >
+              <Text style={styles.unreadText}>{unread > 9 ? '9+' : unread}</Text>
+            </View>
+          )}
         </Pressable>
         <MenuButton onPress={() => setMenuOpen(true)} />
       </View>
@@ -338,8 +424,28 @@ export function GameScreen({ navigation }: Props) {
           }
         }}
       >
+        {chatPreview && !chatOpen && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`New message from ${chatPreview.name}`}
+            onPress={openChat}
+            style={[styles.chatNote, { backgroundColor: theme.colors.surface, borderColor: theme.colors.accent }]}
+          >
+            <Text
+              numberOfLines={1}
+              style={{
+                color: theme.colors.text,
+                fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                fontSize: 14,
+              }}
+            >
+              {chatPreview.name}: {chatPreview.text}
+            </Text>
+          </Pressable>
+        )}
         <View style={styles.boardSlot}>
-        <View style={styles.boardRow}>
+        <View style={[styles.boardColumn, { width: boardSize }]}>
+          <PlayerCaptureRow fen={game.fen} lostBy={session.color} width={boardSize} />
           <View
             style={[
               styles.boardFrame,
@@ -361,16 +467,14 @@ export function GameScreen({ navigation }: Props) {
               interactive={myTurn}
               lastMove={game.lastMove}
               onMove={onMove}
+              onPromote={(from, to) => setPromo({ from, to })}
             />
           </View>
-          <View style={{ height: boardSize, width: sideWidth }}>
-            <CapturedSideColumn
-              fen={game.fen}
-              myColor={session.color}
-              width={sideWidth}
-              tileSize={Math.max(24, sideWidth - 8)}
-            />
-          </View>
+          <PlayerCaptureRow
+            fen={game.fen}
+            lostBy={session.color === 'w' ? 'b' : 'w'}
+            width={boardSize}
+          />
         </View>
         </View>
 
@@ -448,6 +552,68 @@ export function GameScreen({ navigation }: Props) {
         </View>
       )}
 
+      {promo && (
+        <View style={styles.promoLayer}>
+          <Pressable style={styles.promoBackdrop} onPress={() => setPromo(null)} />
+          <View
+            style={[
+              styles.promoSheet,
+              {
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+                marginBottom: Math.max(insets.bottom, 12),
+              },
+            ]}
+          >
+            <Text
+              style={{
+                color: theme.colors.text,
+                fontFamily: fontFamilyFor(theme, 'display', 'bold'),
+                fontSize: 22,
+                textAlign: 'center',
+              }}
+            >
+              Choose a piece
+            </Text>
+            <View style={styles.promoRow}>
+              {(['q', 'r', 'b', 'n'] as PieceType[]).map((type) => (
+                <Pressable
+                  key={type}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    type === 'q' ? 'Queen' : type === 'r' ? 'Rook' : type === 'b' ? 'Bishop' : 'Knight'
+                  }
+                  onPress={() => {
+                    const choice = promo;
+                    setPromo(null);
+                    onMove(choice.from, choice.to, type);
+                  }}
+                  style={({ pressed }) => [
+                    styles.promoChoice,
+                    {
+                      borderColor: theme.colors.accent,
+                      backgroundColor: theme.colors.background,
+                      opacity: pressed ? 0.75 : 1,
+                    },
+                  ]}
+                >
+                  <ChessPiece type={type} color={session.color} size={48} />
+                  <Text
+                    style={{
+                      color: theme.colors.text,
+                      fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                      fontSize: 12,
+                    }}
+                  >
+                    {type === 'q' ? 'Queen' : type === 'r' ? 'Rook' : type === 'b' ? 'Bishop' : 'Knight'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        </View>
+      )}
+
       <GameMenu
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
@@ -457,8 +623,8 @@ export function GameScreen({ navigation }: Props) {
           { label: copied ? 'Invite copied' : 'Copy invite link', onPress: () => void copyInvite() },
           { label: 'Themes', onPress: () => navigation.navigate('Themes') },
           {
-            label: chatOpen ? 'Hide chat' : 'Show chat',
-            onPress: () => setChatOpen((v) => !v),
+            label: chatOpen ? 'Hide chat' : unread > 0 ? `Show chat (${unread})` : 'Show chat',
+            onPress: toggleChat,
           },
           { label: 'Resign', onPress: resign, danger: true },
           { label: 'End & leave', onPress: () => void leave(), danger: true },
@@ -487,6 +653,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  unread: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  unreadText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  chatNote: {
+    marginHorizontal: 10,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderRadius: 12,
+    minHeight: 40,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+  },
   body: {
     flex: 1,
   },
@@ -494,12 +686,47 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
-  boardRow: {
+  boardColumn: {
+    alignSelf: 'center',
+    gap: 4,
+  },
+  promoLayer: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    justifyContent: 'flex-end',
+    zIndex: 30,
+  },
+  promoBackdrop: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+  },
+  promoSheet: {
+    marginHorizontal: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 16,
+    gap: 14,
+  },
+  promoRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  promoChoice: {
+    flex: 1,
+    minHeight: 88,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    width: '100%',
+    gap: 4,
   },
   boardFrame: {
     borderWidth: 2,

@@ -108,6 +108,7 @@ export type PublicGame = {
   isCheckmate: boolean;
   isDraw: boolean;
   isStalemate: boolean;
+  updatedAt: number;
 };
 
 const games = new Map<string, StoredGame>();
@@ -230,6 +231,7 @@ function toPublic(game: StoredGame, connectedIds: Set<string>): PublicGame {
     isCheckmate: chess.isCheckmate(),
     isDraw: chess.isDraw(),
     isStalemate: chess.isStalemate(),
+    updatedAt: game.updatedAt,
   };
 }
 
@@ -384,8 +386,11 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
     }
     socket.join(game.id);
     socketPlayer.set(socket.id, { gameId: game.id, playerId: payload.playerId });
-    emitGame(game);
-    cb({ ok: true, game: toPublic(game, connectedPlayersFor(game)), color });
+    // Read again so a move saved while this rejoin was in flight is what we send.
+    const fresh = (await loadGame(payload.gameId)) ?? game;
+    const pub = toPublic(fresh, connectedPlayersFor(fresh));
+    socket.emit('gameUpdated', pub);
+    cb({ ok: true, game: pub, color });
   });
 
   socket.on('makeMove', async (payload, cb) => {

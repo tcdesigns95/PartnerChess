@@ -42,12 +42,22 @@ function countSide(fen: string, color: PieceColor): Record<PieceType, number> {
   return counts;
 }
 
-/** Pieces of `color` that have been captured (no longer on the board). */
+/**
+ * Pieces of `color` that have been captured (no longer on the board).
+ * Extra queens, rooks, bishops, and knights came from pawn promotions, so
+ * those pawns are not shown as captured.
+ */
 export function getCapturedPieces(fen: string, color: PieceColor): CapturedPiece[] {
   const onBoard = countSide(fen, color);
+  let promoted = 0;
+  for (const type of CAPTURE_ORDER) {
+    if (type === 'p') continue;
+    promoted += Math.max(0, onBoard[type] - START_COUNT[type]);
+  }
   const out: CapturedPiece[] = [];
   for (const type of CAPTURE_ORDER) {
-    const missing = Math.max(0, START_COUNT[type] - onBoard[type]);
+    let missing = Math.max(0, START_COUNT[type] - onBoard[type]);
+    if (type === 'p') missing = Math.max(0, missing - promoted);
     for (let i = 0; i < missing; i++) {
       out.push({ type, color, key: `${color}-${type}-${i}` });
     }
