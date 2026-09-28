@@ -12,6 +12,9 @@ import { ChessPiece } from './ChessPiece';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
 import type { PlayerColor } from '../lib/types';
 
+/** Last-move mark: a neon frame, not a filled square. */
+const LAST_MOVE_BORDER = '#39FF14';
+
 type ChessBoardProps = {
   fen: string;
   orientation: PlayerColor;
@@ -133,13 +136,15 @@ export function ChessBoard({
                       ? theme.colors.lightSquare
                       : theme.colors.darkSquare,
                   },
-                  isLast && { backgroundColor: theme.colors.lastMove },
                   isSelected && {
                     borderWidth: 2,
                     borderColor: theme.colors.accent,
                   },
                 ]}
               >
+                {isLast && (
+                  <View pointerEvents="none" style={styles.lastMoveBorder} />
+                )}
                 {isTarget && (
                   <View
                     pointerEvents="none"
@@ -225,6 +230,17 @@ const styles = StyleSheet.create({
   square: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  lastMoveBorder: {
+    position: 'absolute',
+    top: 1,
+    right: 1,
+    bottom: 1,
+    left: 1,
+    borderWidth: 3,
+    borderColor: LAST_MOVE_BORDER,
+    borderRadius: 2,
+    boxShadow: '0 0 8px #39FF14',
   },
   targetDot: {
     position: 'absolute',
