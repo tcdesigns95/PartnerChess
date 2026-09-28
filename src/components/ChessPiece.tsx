@@ -38,11 +38,11 @@ const COOL_NEON: Record<PieceType, string> = {
 
 const WARM_NEON: Record<PieceType, string> = {
   k: '#FFE14A',
-  q: '#FF4DFF',
+  q: '#FFF200',
   b: '#FF8A3D',
   n: '#FF5C33',
-  r: '#FF2E97',
-  p: '#FF7AD9',
+  r: '#E6C200',
+  p: '#FFF6B0',
 };
 
 export function ChessPiece({ type, color, size }: ChessPieceProps) {
