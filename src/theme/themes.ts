@@ -1,6 +1,6 @@
 /**
  * Chess app visual themes — board, pieces, chrome, and chat.
- * Default is Cyber: a dark board with neon pieces.
+ * Default is Cyber: black and bone squares, neon pieces, and a cyan frame.
  */
 
 export type PieceSetId = 'classic' | 'modern' | 'walnut' | 'ink' | 'cyber';
@@ -56,8 +56,8 @@ export const themes: Record<string, AppTheme> = {
       accent: '#00F0FF',
       accentText: '#061016',
       danger: '#FF2E6C',
-      lightSquare: '#1A2344',
-      darkSquare: '#0C1022',
+      lightSquare: '#E8DCC8',
+      darkSquare: '#111111',
       lastMove: '#39FF14',
       chatBubbleMine: '#102A32',
       chatBubbleTheirs: '#1A1228',
