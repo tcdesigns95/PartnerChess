@@ -353,6 +353,25 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
       if (!game.players.w) color = 'w';
       else if (!game.players.b) color = 'b';
       else {
+        // Same person opening the link again after the phone dropped their seat.
+        const wanted = name.toLowerCase();
+        const seats = (['w', 'b'] as const).filter(
+          (seat) => game.players[seat]?.name.trim().toLowerCase() === wanted,
+        );
+        if (seats.length === 1) {
+          const seat = seats[0];
+          const playerId = game.players[seat]!.id;
+          socket.join(game.id);
+          socketPlayer.set(socket.id, { gameId: game.id, playerId });
+          emitGame(game);
+          cb({
+            ok: true,
+            game: toPublic(game, connectedPlayersFor(game)),
+            playerId,
+            color: seat,
+          });
+          return;
+        }
         cb({ ok: false, error: 'Game is full' });
         return;
       }

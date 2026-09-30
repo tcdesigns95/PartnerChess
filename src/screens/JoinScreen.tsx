@@ -16,7 +16,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { BackButton } from '../components/BackButton';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
 import { clearInviteCodeFromUrl, getSocket } from '../lib/socket';
-import { loadDisplayName, saveDisplayName, saveSession } from '../lib/session';
+import { loadDisplayName, loadSession, saveDisplayName, saveSession } from '../lib/session';
 import { useKeyboardInset } from '../lib/useKeyboardInset';
 import type { RootStackParamList } from '../lib/types';
 
@@ -98,6 +98,13 @@ export function JoinScreen({ navigation, route }: Props) {
     if (!inviteCode || autoJoinStarted.has(inviteCode)) return;
     autoJoinStarted.add(inviteCode);
     void (async () => {
+      const existing = await loadSession();
+      if (existing && existing.code.toUpperCase() === inviteCode) {
+        autoJoinStarted.delete(inviteCode);
+        clearInviteCodeFromUrl();
+        navigation.replace('Game');
+        return;
+      }
       const saved = (await loadDisplayName()).trim() || 'You';
       setName(saved);
       joinWith(saved, inviteCode);

@@ -22,7 +22,7 @@ import { ChessPiece, type PieceType } from '../components/ChessPiece';
 import { ChatPanel } from '../components/ChatPanel';
 import { ChatIcon, GameMenu, MenuButton } from '../components/GameMenu';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
-import { getSocket, buildInviteLink } from '../lib/socket';
+import { getSocket, buildInviteLink, resumeLiveSocket } from '../lib/socket';
 import { clearSession, loadSession, saveSession } from '../lib/session';
 import { useKeyboardInset } from '../lib/useKeyboardInset';
 import type { ChatMessage, PublicGame, RootStackParamList, Session } from '../lib/types';
@@ -50,6 +50,8 @@ export function GameScreen({ navigation }: Props) {
   const pendingMoveRef = useRef(false);
   const chatHydrated = useRef(false);
   const seenChatIds = useRef(new Set<string>());
+  const hasGameRef = useRef(false);
+  const rejoinTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { width: winW, height: winH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const keyboardInset = useKeyboardInset();
@@ -75,6 +77,7 @@ export function GameScreen({ navigation }: Props) {
     if (!force && pendingMoveRef.current && rev === revisionRef.current) return;
     revisionRef.current = rev;
     pendingMoveRef.current = false;
+    hasGameRef.current = true;
     setGame(g);
     // The first snapshot is history. Later snapshots can carry a message the live event missed.
     absorbChat(g.chat ?? [], chatHydrated.current);
@@ -96,12 +99,18 @@ export function GameScreen({ navigation }: Props) {
   const rejoin = useCallback((force = false) => {
     const s = sessionRef.current;
     if (!s) return;
+    if (force) resumeLiveSocket();
     const socket = getSocket();
-    const doRejoin = () => {
+    const emit = () => {
+      if (rejoinTimer.current) clearTimeout(rejoinTimer.current);
+      rejoinTimer.current = setTimeout(() => {
+        if (!hasGameRef.current) setError((current) => current || 'Could not reopen your game');
+      }, 8000);
       socket.emit(
         'rejoinGame',
         { gameId: s.gameId, playerId: s.playerId },
         (res) => {
+          if (rejoinTimer.current) clearTimeout(rejoinTimer.current);
           if (!res.ok) {
             setError(res.error);
             return;
@@ -112,8 +121,11 @@ export function GameScreen({ navigation }: Props) {
         },
       );
     };
-    if (socket.connected) doRejoin();
-    else socket.once('connect', doRejoin);
+    if (socket.connected) emit();
+    else {
+      socket.connect();
+      socket.once('connect', emit);
+    }
   }, [applyGame]);
 
   useEffect(() => {
@@ -159,22 +171,25 @@ export function GameScreen({ navigation }: Props) {
   );
 
   useEffect(() => {
+    const wake = () => {
+      if (Platform.OS === 'web' && typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      rejoin(true);
+    };
     const onChange = (state: AppStateStatus) => {
-      if (state === 'active') rejoin();
+      if (state === 'active') wake();
     };
     const sub = AppState.addEventListener('change', onChange);
-    const onVisible = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') rejoin();
-    };
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', onVisible);
-      window.addEventListener('focus', onVisible);
+      document.addEventListener('visibilitychange', wake);
+      window.addEventListener('pageshow', wake);
     }
     return () => {
       sub.remove();
       if (Platform.OS === 'web' && typeof document !== 'undefined') {
-        document.removeEventListener('visibilitychange', onVisible);
-        window.removeEventListener('focus', onVisible);
+        document.removeEventListener('visibilitychange', wake);
+        window.removeEventListener('pageshow', wake);
       }
     };
   }, [rejoin]);
@@ -206,6 +221,7 @@ export function GameScreen({ navigation }: Props) {
       if (promotion) opts.promotion = promotion;
       const local = draft.move(opts as Parameters<Chess['move']>[0]);
       if (local) {
+        hasGameRef.current = true;
         setGame({
           ...game,
           fen: draft.fen(),
@@ -319,7 +335,44 @@ export function GameScreen({ navigation }: Props) {
   if (!game || !session) {
     return (
       <SafeAreaView style={[styles.safe, styles.center, { backgroundColor: theme.colors.background }]}>
-        <ActivityIndicator color={theme.colors.accent} />
+        {error ? (
+          <>
+            <Text
+              style={{
+                color: theme.colors.danger,
+                fontFamily: fontFamilyFor(theme, 'body'),
+                textAlign: 'center',
+                paddingHorizontal: 24,
+              }}
+            >
+              {error}
+            </Text>
+            <Pressable
+              onPress={() => {
+                setError('');
+                rejoin(true);
+              }}
+              style={{ marginTop: 16 }}
+            >
+              <Text style={{ color: theme.colors.text, fontFamily: fontFamilyFor(theme, 'body', 'bold') }}>
+                Back to the game
+              </Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <ActivityIndicator color={theme.colors.accent} />
+            <Text
+              style={{
+                color: theme.colors.textMuted,
+                fontFamily: fontFamilyFor(theme, 'body'),
+                marginTop: 12,
+              }}
+            >
+              Opening your game…
+            </Text>
+          </>
+        )}
       </SafeAreaView>
     );
   }

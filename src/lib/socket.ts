@@ -87,6 +87,22 @@ export function getSocket() {
   return socket;
 }
 
+let lastResumeAt = 0;
+
+/**
+ * A phone often reports the socket as connected after the app was backgrounded
+ * and the network is already gone. Drop that socket and open a new one.
+ */
+export function resumeLiveSocket() {
+  const live = getSocket();
+  const now = Date.now();
+  if (now - lastResumeAt < 1200) return live;
+  lastResumeAt = now;
+  if (live.connected) live.disconnect();
+  live.connect();
+  return live;
+}
+
 /** Public invite URL for iMessage / Messages. Opening it joins that match. */
 export function buildInviteLink(code: string, baseUrl?: string): string {
   const base =
