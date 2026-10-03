@@ -28,7 +28,7 @@ const PIECE_PATHS: Record<PieceType, string> = {
   p: 'M34.5 88.1C33.8 85.2 35.2 82.8 41.4 76.6C48.6 69.6 50.5 65.5 50.5 57.5C50.5 51.6 50.4 51.3 48.5 51.3C43.1 51.3 42.3 47.1 47.4 44.6C50.1 43.3 50.2 42.5 47.8 39.1C42.2 31.2 47.1 19.1 56.8 16.9C69.3 14.1 79.6 28.3 72.5 38.8C69.7 42.8 69.8 43.0 73.4 44.7C78.4 47.1 77.3 51.3 71.6 51.3C69.6 51.3 69.5 51.6 69.5 57.2C69.5 65.0 71.6 69.3 79.1 76.9C84.4 82.3 85.2 83.5 85.3 86.4L85.4 89.7L60.2 89.9L35.0 90.2L34.5 88.1Z',
 };
 
-/** Cool holograms for white, warm solids for black. Hue shifts by piece type. */
+/** Cool hues for white, warm hues for black. White is the bright army; black is the dark one. */
 const COOL_NEON: Record<PieceType, string> = {
   k: '#D6FF4A',
   q: '#7AF0FF',
@@ -66,10 +66,10 @@ export function ChessPiece({ type, color, size }: ChessPieceProps) {
 
 function CyberPiece({ type, color, size }: ChessPieceProps) {
   const neon = color === 'w' ? COOL_NEON[type] : WARM_NEON[type];
-  const hologram = color === 'w';
+  const dark = color === 'b';
   const crowned = type === 'k' || type === 'q';
-  const fill = hologram ? '#070B14' : neon;
-  const stroke = hologram ? neon : '#14060A';
+  const fill = dark ? '#070B14' : neon;
+  const stroke = dark ? neon : '#14060A';
 
   return (
     <Svg width={size} height={size} viewBox="8 0 124 118" accessibilityLabel={`${color}${type}`}>
@@ -86,7 +86,7 @@ function CyberPiece({ type, color, size }: ChessPieceProps) {
         d={PIECE_PATHS[type]}
         fill={fill}
         stroke={stroke}
-        strokeWidth={hologram ? (crowned ? 3.2 : 4.5) : crowned ? 1.6 : 2.5}
+        strokeWidth={dark ? (crowned ? 3.2 : 4.5) : crowned ? 1.6 : 2.5}
         strokeLinejoin="round"
         strokeLinecap="round"
       />

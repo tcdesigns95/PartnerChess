@@ -23,6 +23,7 @@ import { ChatPanel } from '../components/ChatPanel';
 import { ChatIcon, GameMenu, MenuButton } from '../components/GameMenu';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
 import { getSocket, buildInviteLink, resumeLiveSocket } from '../lib/socket';
+import { shouldApplySnapshot, type PendingMove } from '../lib/applySnapshot';
 import { clearSession, loadSession, saveSession } from '../lib/session';
 import { useKeyboardInset } from '../lib/useKeyboardInset';
 import type { ChatMessage, PublicGame, RootStackParamList, Session } from '../lib/types';
@@ -46,7 +47,8 @@ export function GameScreen({ navigation }: Props) {
   const sessionRef = useRef<Session | null>(null);
   const chatOpenRef = useRef(false);
   const revisionRef = useRef(0);
-  const pendingMoveRef = useRef(false);
+  const pendingMoveRef = useRef<(PendingMove & { token: number; tries: number; from: string; to: string; promotion?: string }) | null>(null);
+  const moveToken = useRef(0);
   const chatHydrated = useRef(false);
   const seenChatIds = useRef(new Set<string>());
   const hasGameRef = useRef(false);
@@ -67,18 +69,16 @@ export function GameScreen({ navigation }: Props) {
     }
   }, []);
 
-  const applyGame = useCallback((g: PublicGame, force = false) => {
+  const applyGame = useCallback((g: PublicGame) => {
     const rev = g.updatedAt ?? 0;
-    // Never paint an older snapshot over a move that already landed.
-    if (rev < revisionRef.current) return;
-    // While a move is in flight, ignore a repeat of the pre-move snapshot.
-    // A failed move passes force so the server position can replace the optimistic one.
-    if (!force && pendingMoveRef.current && rev === revisionRef.current) return;
-    revisionRef.current = rev;
-    pendingMoveRef.current = false;
-    hasGameRef.current = true;
-    setGame(g);
-    // The first snapshot is history. Later snapshots can carry a message the live event missed.
+    const pending = pendingMoveRef.current;
+    const apply = shouldApplySnapshot({
+      rev,
+      fen: g.fen,
+      status: g.status,
+      heldRevision: revisionRef.current,
+      pending,
+    });
     absorbChat(g.chat ?? [], chatHydrated.current);
     chatHydrated.current = true;
     setMessages((prev) => {
@@ -87,12 +87,17 @@ export function GameScreen({ navigation }: Props) {
       for (const m of prev) if (!map.has(m.id)) map.set(m.id, m);
       return [...map.values()].sort((a, b) => a.at - b.at);
     });
+    if (!apply) return;
+    pendingMoveRef.current = null;
+    revisionRef.current = Math.max(revisionRef.current, rev);
+    hasGameRef.current = true;
+    setGame(g);
   }, [absorbChat]);
 
   const rejoin = useCallback((force = false) => {
     const s = sessionRef.current;
     if (!s) return;
-    if (force) resumeLiveSocket();
+    if (force && !pendingMoveRef.current) resumeLiveSocket();
     const socket = getSocket();
     const emit = () => {
       if (rejoinTimer.current) clearTimeout(rejoinTimer.current);
@@ -114,7 +119,7 @@ export function GameScreen({ navigation }: Props) {
           const next = { ...s, color, name, code: res.game.code };
           sessionRef.current = next;
           setSession(next);
-          applyGame(res.game, force);
+          applyGame(res.game);
           void saveSession(next);
         },
       );
@@ -211,18 +216,19 @@ export function GameScreen({ navigation }: Props) {
 
   const onMove = (from: string, to: string, promotion?: string) => {
     if (!session || !game) return;
-    pendingMoveRef.current = true;
-    const startedRev = revisionRef.current;
+    const baseFen = game.fen;
+    let optimisticFen = baseFen;
     try {
       const draft = new Chess(game.fen);
       const opts: { from: string; to: string; promotion?: string } = { from, to };
       if (promotion) opts.promotion = promotion;
       const local = draft.move(opts as Parameters<Chess['move']>[0]);
       if (local) {
+        optimisticFen = draft.fen();
         hasGameRef.current = true;
         setGame({
           ...game,
-          fen: draft.fen(),
+          fen: optimisticFen,
           lastMove: { from: local.from, to: local.to },
           turn: draft.turn(),
           isCheck: draft.isCheck(),
@@ -236,37 +242,64 @@ export function GameScreen({ navigation }: Props) {
       // server wins
     }
 
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      if (pendingMoveRef.current && revisionRef.current === startedRev) {
-        pendingMoveRef.current = false;
-        rejoin(true);
-      }
-    }, 4500);
+    const token = ++moveToken.current;
+    const pending = {
+      token,
+      fen: optimisticFen,
+      baseFen,
+      baseRev: revisionRef.current,
+      from,
+      to,
+      promotion,
+      tries: 0,
+      giveUp: false,
+    };
+    pendingMoveRef.current = pending;
 
-    getSocket().emit(
-      'makeMove',
-      {
-        gameId: session.gameId,
-        playerId: session.playerId,
-        from,
-        to,
-        promotion,
-      },
-      (res) => {
-        settled = true;
-        clearTimeout(timer);
-        if (!res.ok) {
-          pendingMoveRef.current = false;
-          setError(res.error);
-          rejoin(true);
+    const emitMove = () => {
+      const seat = sessionRef.current;
+      if (!seat || pendingMoveRef.current?.token !== token) return;
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled || pendingMoveRef.current?.token !== token) return;
+        if (pending.tries >= 1) {
+          pending.giveUp = true;
+          rejoin(false);
           return;
         }
-        setError('');
-        applyGame(res.game);
-      },
-    );
+        pending.tries += 1;
+        emitMove();
+      }, 4500);
+
+      const socket = getSocket();
+      if (!socket.connected) socket.connect();
+      socket.emit(
+        'makeMove',
+        {
+          gameId: seat.gameId,
+          playerId: seat.playerId,
+          from,
+          to,
+          promotion,
+        },
+        (res) => {
+          settled = true;
+          clearTimeout(timer);
+          if (pendingMoveRef.current?.token !== token) return;
+          if (!res.ok) {
+            pending.giveUp = true;
+            if (res.error !== 'Not your turn' && res.error !== 'Move did not save, try again') {
+              setError(res.error);
+            }
+            rejoin(false);
+            return;
+          }
+          setError('');
+          applyGame(res.game);
+        },
+      );
+    };
+    emitMove();
   };
 
   useEffect(() => {
@@ -381,8 +414,8 @@ export function GameScreen({ navigation }: Props) {
   const opponent =
     session.color === 'w' ? game.players.b?.name : game.players.w?.name;
   const headline = game.status === 'finished' ? game.result || 'Game over' : myName;
-  const detailParts = [`${myColorLabel}${opponent ? ` vs ${opponent}` : ''}`];
-  if (game.status === 'waiting' && !opponent) detailParts.push('waiting');
+  const detailParts = [`Playing ${myColorLabel.toLowerCase()}`];
+  if (game.status === 'waiting' && !opponent) detailParts.push('waiting for your partner');
   if (game.status === 'active' && game.isCheck) detailParts.push('check');
   if (myTurn) detailParts.push('your move');
   else if (game.status === 'active' && opponent) detailParts.push(`${opponent}'s move`);
@@ -492,7 +525,12 @@ export function GameScreen({ navigation }: Props) {
         )}
         <View style={styles.boardSlot}>
         <View style={[styles.boardColumn, { width: boardSize }]}>
-          <PlayerCaptureRow fen={game.fen} lostBy={session.color} width={boardSize} />
+          <PlayerCaptureRow
+            fen={game.fen}
+            lostBy={session.color}
+            width={boardSize}
+            label={opponent ?? 'Open seat'}
+          />
           <View
             style={[
               styles.boardFrame,
@@ -521,6 +559,7 @@ export function GameScreen({ navigation }: Props) {
             fen={game.fen}
             lostBy={session.color === 'w' ? 'b' : 'w'}
             width={boardSize}
+            label={myName}
           />
         </View>
         </View>
