@@ -413,12 +413,17 @@ export function GameScreen({ navigation }: Props) {
   const myColorLabel = session.color === 'w' ? 'White' : 'Black';
   const opponent =
     session.color === 'w' ? game.players.b?.name : game.players.w?.name;
-  const headline = game.status === 'finished' ? game.result || 'Game over' : myName;
-  const detailParts = [`Playing ${myColorLabel.toLowerCase()}`];
-  if (game.status === 'waiting' && !opponent) detailParts.push('waiting for your partner');
-  if (game.status === 'active' && game.isCheck) detailParts.push('check');
-  if (myTurn) detailParts.push('your move');
-  else if (game.status === 'active' && opponent) detailParts.push(`${opponent}'s move`);
+  const mate = game.isCheckmate;
+  const inCheck = game.isCheck && !mate;
+  const headline = mate
+    ? 'Checkmate'
+    : game.status === 'finished'
+      ? game.result || 'Game over'
+      : myName;
+  const detailParts = mate && game.result ? [game.result] : [`Playing ${myColorLabel.toLowerCase()}`];
+  if (!mate && game.status === 'waiting' && !opponent) detailParts.push('waiting for your partner');
+  if (!mate && myTurn) detailParts.push('your move');
+  else if (!mate && game.status === 'active' && opponent) detailParts.push(`${opponent}'s move`);
   const detail = detailParts.join(' · ');
   const bottomInset = Math.max(insets.bottom, 8);
   const hPad = 10;
@@ -443,7 +448,7 @@ export function GameScreen({ navigation }: Props) {
           <Text
             numberOfLines={1}
             style={{
-              color: theme.colors.text,
+              color: mate ? theme.colors.danger : theme.colors.text,
               fontFamily: fontFamilyFor(theme, 'display', 'bold'),
               fontSize: 22,
             }}
@@ -451,6 +456,17 @@ export function GameScreen({ navigation }: Props) {
             {headline}
           </Text>
           <Text numberOfLines={1} style={{ marginTop: 2 }}>
+            {inCheck && !copied && (
+              <Text
+                style={{
+                  color: theme.colors.danger,
+                  fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                  fontSize: 13,
+                }}
+              >
+                Check ·{' '}
+              </Text>
+            )}
             <Text
               style={{
                 color: theme.colors.textMuted,

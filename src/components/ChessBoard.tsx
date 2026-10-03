@@ -14,6 +14,8 @@ import type { PlayerColor } from '../lib/types';
 
 /** Last-move mark: a neon frame, not a filled square. */
 const LAST_MOVE_BORDER = '#39FF14';
+/** Check and checkmate: a hot frame on the king, separate from the last-move green. */
+const CHECK_BORDER = '#FF2E6C';
 
 type ChessBoardProps = {
   fen: string;
@@ -50,6 +52,20 @@ export function ChessBoard({
   useEffect(() => {
     setSelected(null);
   }, [fen]);
+
+  const kingAlarm = useMemo(() => {
+    const kind = chess.isCheckmate() ? 'checkmate' : chess.isCheck() ? 'check' : null;
+    if (!kind) return null;
+    const color = chess.turn();
+    for (const rank of RANKS) {
+      for (const file of FILES) {
+        const square = `${file}${rank}` as Square;
+        const piece = chess.get(square);
+        if (piece?.type === 'k' && piece.color === color) return { square, kind };
+      }
+    }
+    return null;
+  }, [chess]);
 
   const legalTargets = useMemo(() => {
     if (!selected) return new Set<string>();
@@ -130,6 +146,7 @@ export function ChessBoard({
               (lastMove.from === square || lastMove.to === square);
             const isSelected = selected === square;
             const isTarget = legalTargets.has(square);
+            const kingKind = kingAlarm?.square === square ? kingAlarm.kind : null;
 
             return (
               <Pressable
@@ -155,6 +172,13 @@ export function ChessBoard({
               >
                 {isLast && (
                   <View pointerEvents="none" style={styles.lastMoveBorder} />
+                )}
+                {kingKind && (
+                  <View
+                    pointerEvents="none"
+                    accessibilityLabel={kingKind === 'checkmate' ? 'Checkmate' : 'Check'}
+                    style={[styles.checkBorder, kingKind === 'checkmate' && styles.checkmateBorder]}
+                  />
                 )}
                 {isTarget && (
                   <View
@@ -260,6 +284,21 @@ const styles = StyleSheet.create({
     borderColor: LAST_MOVE_BORDER,
     borderRadius: 2,
     boxShadow: '0 0 8px #39FF14',
+  },
+  checkBorder: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    borderWidth: 3,
+    borderColor: CHECK_BORDER,
+    borderRadius: 2,
+    boxShadow: '0 0 12px #FF2E6C',
+  },
+  checkmateBorder: {
+    borderWidth: 4,
+    backgroundColor: 'rgba(255, 46, 108, 0.35)',
   },
   targetDot: {
     position: 'absolute',
