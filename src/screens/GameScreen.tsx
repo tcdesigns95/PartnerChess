@@ -34,7 +34,6 @@ export function GameScreen({ navigation }: Props) {
   const [session, setSession] = useState<Session | null>(null);
   const [game, setGame] = useState<PublicGame | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [status, setStatus] = useState('…');
   const [error, setError] = useState('');
   const [bodyBox, setBodyBox] = useState({ w: 0, h: 0 });
   const [menuOpen, setMenuOpen] = useState(false);
@@ -88,12 +87,6 @@ export function GameScreen({ navigation }: Props) {
       for (const m of prev) if (!map.has(m.id)) map.set(m.id, m);
       return [...map.values()].sort((a, b) => a.at - b.at);
     });
-    if (g.status === 'waiting') setStatus('Waiting');
-    else if (g.status === 'finished') setStatus(g.result || 'Over');
-    else {
-      const turnLabel = g.turn === 'w' ? 'White' : 'Black';
-      setStatus(g.isCheck ? `${turnLabel} · check` : turnLabel);
-    }
   }, [absorbChat]);
 
   const rejoin = useCallback((force = false) => {
@@ -116,8 +109,13 @@ export function GameScreen({ navigation }: Props) {
             return;
           }
           setError('');
+          const color = res.color || s.color;
+          const name = res.game.players[color]?.name || s.name;
+          const next = { ...s, color, name, code: res.game.code };
+          sessionRef.current = next;
+          setSession(next);
           applyGame(res.game, force);
-          void saveSession({ ...s, code: res.game.code });
+          void saveSession(next);
         },
       );
     };
@@ -378,8 +376,17 @@ export function GameScreen({ navigation }: Props) {
   }
 
   const myTurn = game.status === 'active' && game.turn === session.color;
+  const myName = game.players[session.color]?.name || session.name || 'You';
+  const myColorLabel = session.color === 'w' ? 'White' : 'Black';
   const opponent =
     session.color === 'w' ? game.players.b?.name : game.players.w?.name;
+  const headline = game.status === 'finished' ? game.result || 'Game over' : myName;
+  const detailParts = [`${myColorLabel}${opponent ? ` vs ${opponent}` : ''}`];
+  if (game.status === 'waiting' && !opponent) detailParts.push('waiting');
+  if (game.status === 'active' && game.isCheck) detailParts.push('check');
+  if (myTurn) detailParts.push('your move');
+  else if (game.status === 'active' && opponent) detailParts.push(`${opponent}'s move`);
+  const detail = detailParts.join(' · ');
   const bottomInset = Math.max(insets.bottom, 8);
   const hPad = 10;
   const areaW = bodyBox.w || winW;
@@ -408,7 +415,7 @@ export function GameScreen({ navigation }: Props) {
               fontSize: 22,
             }}
           >
-            {status}
+            {headline}
           </Text>
           <Text numberOfLines={1} style={{ marginTop: 2 }}>
             <Text
@@ -418,21 +425,8 @@ export function GameScreen({ navigation }: Props) {
                 fontSize: 13,
               }}
             >
-            {copied
-              ? 'Invite copied'
-              : `${session.color === 'w' ? 'White' : 'Black'}${opponent ? ` vs ${opponent}` : ''}`}
+              {copied ? 'Invite copied' : detail}
             </Text>
-            {myTurn ? (
-              <Text
-                style={{
-                  color: theme.colors.text,
-                  fontFamily: fontFamilyFor(theme, 'body', 'bold'),
-                  fontSize: 13,
-                }}
-              >
-                {'  ·  your move'}
-              </Text>
-            ) : null}
           </Text>
         </View>
         <Pressable
