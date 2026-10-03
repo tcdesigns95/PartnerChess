@@ -108,6 +108,7 @@ export type PublicGame = {
   isCheckmate: boolean;
   isDraw: boolean;
   isStalemate: boolean;
+  updatedAt: number;
 };
 
 const games = new Map<string, StoredGame>();
@@ -161,15 +162,61 @@ function remember(game: StoredGame) {
   codeIndex.set(game.code, game.id);
 }
 
-async function saveGame(game: StoredGame) {
-  remember(game);
+function cloneGame(game: StoredGame): StoredGame {
+  return {
+    ...game,
+    players: { ...game.players },
+    chat: game.chat.slice(),
+    lastMove: game.lastMove ? { ...game.lastMove } : undefined,
+  };
+}
+
+/**
+ * Write the game only when Redis still has `expectedUpdatedAt`.
+ * A slower save (chat, a dropped socket, another instance) cannot put an old
+ * position back on top of a move that already landed.
+ */
+const SAVE_IF_REVISION = `
+local current = redis.call('GET', KEYS[1])
+if current then
+  local rev = string.match(current, '"updatedAt":%s*(%d+)')
+  if rev and rev ~= ARGV[1] then
+    return 0
+  end
+end
+redis.call('SET', KEYS[1], ARGV[2])
+redis.call('SET', KEYS[2], ARGV[3])
+return 1
+`;
+
+async function saveGame(game: StoredGame, expectedUpdatedAt?: number): Promise<boolean> {
   const client = getRedis();
+  if (expectedUpdatedAt != null && client) {
+    const ok = await client.eval(
+      SAVE_IF_REVISION,
+      2,
+      `chess:game:${game.id}`,
+      `chess:code:${game.code}`,
+      String(expectedUpdatedAt),
+      JSON.stringify(game),
+      game.id,
+    );
+    if (Number(ok) !== 1) return false;
+    remember(game);
+    return true;
+  }
+  if (expectedUpdatedAt != null) {
+    const current = games.get(game.id);
+    if (current && current.updatedAt !== expectedUpdatedAt) return false;
+  }
+  remember(game);
   if (!client) {
     persistGames();
-    return;
+    return true;
   }
   await client.set(`chess:game:${game.id}`, JSON.stringify(game));
   await client.set(`chess:code:${game.code}`, game.id);
+  return true;
 }
 
 async function loadGame(id: string): Promise<StoredGame | undefined> {
@@ -230,6 +277,7 @@ function toPublic(game: StoredGame, connectedIds: Set<string>): PublicGame {
     isCheckmate: chess.isCheckmate(),
     isDraw: chess.isDraw(),
     isStalemate: chess.isStalemate(),
+    updatedAt: game.updatedAt,
   };
 }
 
@@ -351,20 +399,44 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
       if (!game.players.w) color = 'w';
       else if (!game.players.b) color = 'b';
       else {
+        // Same person opening the link again after the phone dropped their seat.
+        const wanted = name.toLowerCase();
+        const seats = (['w', 'b'] as const).filter(
+          (seat) => game.players[seat]?.name.trim().toLowerCase() === wanted,
+        );
+        if (seats.length === 1) {
+          const seat = seats[0];
+          const playerId = game.players[seat]!.id;
+          socket.join(game.id);
+          socketPlayer.set(socket.id, { gameId: game.id, playerId });
+          emitGame(game);
+          cb({
+            ok: true,
+            game: toPublic(game, connectedPlayersFor(game)),
+            playerId,
+            color: seat,
+          });
+          return;
+        }
         cb({ ok: false, error: 'Game is full' });
         return;
       }
 
       const playerId = uuidv4();
-      game.players[color] = { id: playerId, name };
-      game.status = game.players.w && game.players.b ? 'active' : 'waiting';
-      game.updatedAt = Date.now();
-      socket.join(game.id);
-      socketPlayer.set(socket.id, { gameId: game.id, playerId });
-      await saveGame(game);
-      io.to(game.id).emit('playerJoined', { color, name });
-      emitGame(game);
-      cb({ ok: true, game: toPublic(game, connectedPlayersFor(game)), playerId, color });
+      const expected = game.updatedAt;
+      const next = cloneGame(game);
+      next.players[color] = { id: playerId, name };
+      next.status = next.players.w && next.players.b ? 'active' : 'waiting';
+      next.updatedAt = Math.max(Date.now(), expected + 1);
+      if (!(await saveGame(next, expected))) {
+        cb({ ok: false, error: 'Could not join game' });
+        return;
+      }
+      socket.join(next.id);
+      socketPlayer.set(socket.id, { gameId: next.id, playerId });
+      io.to(next.id).emit('playerJoined', { color, name });
+      emitGame(next);
+      cb({ ok: true, game: toPublic(next, connectedPlayersFor(next)), playerId, color });
     } catch (err) {
       console.error(err);
       cb({ ok: false, error: 'Could not join game' });
@@ -384,69 +456,78 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
     }
     socket.join(game.id);
     socketPlayer.set(socket.id, { gameId: game.id, playerId: payload.playerId });
-    emitGame(game);
-    cb({ ok: true, game: toPublic(game, connectedPlayersFor(game)), color });
+    // Read again so a move saved while this rejoin was in flight is what we send.
+    const fresh = (await loadGame(payload.gameId)) ?? game;
+    const pub = toPublic(fresh, connectedPlayersFor(fresh));
+    socket.emit('gameUpdated', pub);
+    cb({ ok: true, game: pub, color });
   });
 
   socket.on('makeMove', async (payload, cb) => {
-    const game = await loadGame(payload.gameId);
-    if (!game) {
-      cb({ ok: false, error: 'Game not found' });
-      return;
-    }
-    if (game.status === 'finished') {
-      cb({ ok: false, error: 'Game is over' });
-      return;
-    }
-    if (game.status === 'waiting') {
-      cb({ ok: false, error: 'Waiting for your partner to join' });
-      return;
-    }
-    const color = colorOf(game, payload.playerId);
-    if (!color) {
-      cb({ ok: false, error: 'Not your game' });
-      return;
-    }
-    const chess = new Chess(game.fen);
-    if (chess.turn() !== color) {
-      cb({ ok: false, error: 'Not your turn' });
-      return;
-    }
     try {
-      const moveOpts: {
-        from: Square;
-        to: Square;
-        promotion?: 'q' | 'r' | 'b' | 'n';
-      } = {
-        from: payload.from as Square,
-        to: payload.to as Square,
-      };
-      // Only attach promotion for actual pawn promotions — forcing 'q' breaks other moves.
-      if (payload.promotion) {
-        moveOpts.promotion = payload.promotion as 'q' | 'r' | 'b' | 'n';
-      } else {
-        const piece = chess.get(moveOpts.from);
-        if (
-          piece?.type === 'p' &&
-          ((piece.color === 'w' && moveOpts.to.endsWith('8')) ||
-            (piece.color === 'b' && moveOpts.to.endsWith('1')))
-        ) {
-          moveOpts.promotion = 'q';
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const game = await loadGame(payload.gameId);
+        if (!game) {
+          cb({ ok: false, error: 'Game not found' });
+          return;
         }
-      }
-      const move = chess.move(moveOpts);
-      if (!move) {
-        cb({ ok: false, error: 'Illegal move' });
+        if (game.status === 'finished') {
+          cb({ ok: false, error: 'Game is over' });
+          return;
+        }
+        if (game.status === 'waiting') {
+          cb({ ok: false, error: 'Waiting for your partner to join' });
+          return;
+        }
+        const color = colorOf(game, payload.playerId);
+        if (!color) {
+          cb({ ok: false, error: 'Not your game' });
+          return;
+        }
+        const chess = new Chess(game.fen);
+        if (chess.turn() !== color) {
+          cb({ ok: false, error: 'Not your turn' });
+          return;
+        }
+        const moveOpts: {
+          from: Square;
+          to: Square;
+          promotion?: 'q' | 'r' | 'b' | 'n';
+        } = {
+          from: payload.from as Square,
+          to: payload.to as Square,
+        };
+        // Only attach promotion for actual pawn promotions — forcing 'q' breaks other moves.
+        if (payload.promotion) {
+          moveOpts.promotion = payload.promotion as 'q' | 'r' | 'b' | 'n';
+        } else {
+          const piece = chess.get(moveOpts.from);
+          if (
+            piece?.type === 'p' &&
+            ((piece.color === 'w' && moveOpts.to.endsWith('8')) ||
+              (piece.color === 'b' && moveOpts.to.endsWith('1')))
+          ) {
+            moveOpts.promotion = 'q';
+          }
+        }
+        const move = chess.move(moveOpts);
+        if (!move) {
+          cb({ ok: false, error: 'Illegal move' });
+          return;
+        }
+        const expected = game.updatedAt;
+        const next = cloneGame(game);
+        next.fen = chess.fen();
+        next.pgn = chess.pgn();
+        next.lastMove = { from: move.from, to: move.to };
+        next.updatedAt = Math.max(Date.now(), expected + 1);
+        finishIfNeeded(next);
+        if (!(await saveGame(next, expected))) continue;
+        emitGame(next);
+        cb({ ok: true, game: toPublic(next, connectedPlayersFor(next)) });
         return;
       }
-      game.fen = chess.fen();
-      game.pgn = chess.pgn();
-      game.lastMove = { from: move.from, to: move.to };
-      game.updatedAt = Date.now();
-      finishIfNeeded(game);
-      await saveGame(game);
-      emitGame(game);
-      cb({ ok: true, game: toPublic(game, connectedPlayersFor(game)) });
+      cb({ ok: false, error: 'Move did not save, try again' });
     } catch {
       cb({ ok: false, error: 'Illegal move' });
     }
@@ -469,50 +550,67 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
       return;
     }
     const player = game.players[color]!;
-    const message: ChatMessage = {
-      id: uuidv4(),
-      playerId: payload.playerId,
-      name: player.name,
-      text,
-      at: Date.now(),
-    };
-    game.chat.push(message);
-    if (game.chat.length > 200) game.chat = game.chat.slice(-200);
-    game.updatedAt = Date.now();
-    await saveGame(game);
-    io.to(game.id).emit('chatMessage', message);
-    cb({ ok: true });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const current = attempt === 0 ? game : await loadGame(payload.gameId);
+      if (!current) {
+        cb({ ok: false, error: 'Game not found' });
+        return;
+      }
+      const expected = current.updatedAt;
+      const next = cloneGame(current);
+      const message: ChatMessage = {
+        id: uuidv4(),
+        playerId: payload.playerId,
+        name: player.name,
+        text,
+        at: Date.now(),
+      };
+      next.chat = [...next.chat, message].slice(-200);
+      next.updatedAt = Math.max(Date.now(), expected + 1);
+      if (!(await saveGame(next, expected))) continue;
+      io.to(next.id).emit('chatMessage', message);
+      cb({ ok: true });
+      return;
+    }
+    cb({ ok: false, error: 'Could not send message' });
   });
 
   socket.on('resign', async (payload, cb) => {
-    const game = await loadGame(payload.gameId);
-    if (!game) {
-      cb({ ok: false, error: 'Game not found' });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const game = await loadGame(payload.gameId);
+      if (!game) {
+        cb({ ok: false, error: 'Game not found' });
+        return;
+      }
+      const color = colorOf(game, payload.playerId);
+      if (!color) {
+        cb({ ok: false, error: 'Not your game' });
+        return;
+      }
+      if (game.status === 'finished') {
+        cb({ ok: false, error: 'Game is over' });
+        return;
+      }
+      const expected = game.updatedAt;
+      const next = cloneGame(game);
+      next.status = 'finished';
+      next.result = color === 'w' ? 'Black wins — white resigned' : 'White wins — black resigned';
+      next.updatedAt = Math.max(Date.now(), expected + 1);
+      if (!(await saveGame(next, expected))) continue;
+      emitGame(next);
+      cb({ ok: true, game: toPublic(next, connectedPlayersFor(next)) });
       return;
     }
-    const color = colorOf(game, payload.playerId);
-    if (!color) {
-      cb({ ok: false, error: 'Not your game' });
-      return;
-    }
-    if (game.status === 'finished') {
-      cb({ ok: false, error: 'Game is over' });
-      return;
-    }
-    game.status = 'finished';
-    game.result = color === 'w' ? 'Black wins — white resigned' : 'White wins — black resigned';
-    game.updatedAt = Date.now();
-    await saveGame(game);
-    emitGame(game);
-    cb({ ok: true, game: toPublic(game, connectedPlayersFor(game)) });
+    cb({ ok: false, error: 'Could not resign' });
   });
 
   socket.on('disconnect', () => {
     const meta = socketPlayer.get(socket.id);
     if (!meta) return;
     socketPlayer.delete(socket.id);
-    const game = games.get(meta.gameId);
-    if (game) emitGame(game);
+    void loadGame(meta.gameId).then((game) => {
+      if (game) emitGame(game);
+    });
   });
 });
 

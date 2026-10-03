@@ -1,10 +1,10 @@
 /**
  * Chess app visual themes — board, pieces, chrome, and chat.
- * Default is the user's black & white icon theme ("Ink").
+ * Default is Cyber: black and bone squares, neon pieces, and a cyan frame.
  */
 
-export type PieceSetId = 'classic' | 'modern' | 'walnut' | 'ink';
-export type BoardSkinId = 'maple' | 'slate' | 'midnight' | 'blush' | 'ink';
+export type PieceSetId = 'classic' | 'modern' | 'walnut' | 'ink' | 'cyber';
+export type BoardSkinId = 'maple' | 'slate' | 'midnight' | 'blush' | 'ink' | 'cyber';
 
 /** Optional per-user overrides layered on top of a named theme. */
 export type CustomStyles = {
@@ -43,6 +43,32 @@ export type AppTheme = {
 };
 
 export const themes: Record<string, AppTheme> = {
+  cyber: {
+    id: 'cyber',
+    name: 'Cyber',
+    boardSkin: 'cyber',
+    pieceSet: 'cyber',
+    colors: {
+      background: '#07080F',
+      surface: '#10131C',
+      text: '#E9FFF8',
+      textMuted: '#8B97B0',
+      accent: '#00F0FF',
+      accentText: '#061016',
+      danger: '#FF2E6C',
+      lightSquare: '#E8DCC8',
+      darkSquare: '#111111',
+      lastMove: '#39FF14',
+      chatBubbleMine: '#102A32',
+      chatBubbleTheirs: '#1A1228',
+      chatText: '#E9FFF8',
+      border: '#2A3558',
+    },
+    fonts: {
+      display: 'Space Grotesk',
+      body: 'IBM Plex Sans',
+    },
+  },
   ink: {
     id: 'ink',
     name: 'Ink',
@@ -149,7 +175,7 @@ export const themes: Record<string, AppTheme> = {
   },
 };
 
-export const DEFAULT_THEME_ID = 'ink';
+export const DEFAULT_THEME_ID = 'cyber';
 
 export function getTheme(themeId: string): AppTheme {
   return themes[themeId] ?? themes[DEFAULT_THEME_ID];

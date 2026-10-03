@@ -1,66 +1,46 @@
 import React from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SilhouettePieceTile } from './SilhouettePieceTile';
 import { getCapturedPieces } from '../lib/captures';
+import { fontFamilyFor, useTheme } from '../context/ThemeContext';
 import type { PieceColor } from './ChessPiece';
-import { useTheme } from '../context/ThemeContext';
 
-type CapturedSideColumnProps = {
+type PlayerCaptureRowProps = {
   fen: string;
-  myColor: PieceColor;
-  width?: number;
-  tileSize?: number;
+  /** Color of the pieces that were taken. */
+  lostBy: PieceColor;
+  width: number;
+  /** Name of the player sitting on this edge. */
+  label?: string;
 };
 
-/** Right-side captures: top = they took, bottom = you took. No labels. */
-export function CapturedSideColumn({
-  fen,
-  myColor,
-  width = 48,
-  tileSize = 36,
-}: CapturedSideColumnProps) {
+/** Captured pieces along one player's edge of the board. */
+export function PlayerCaptureRow({ fen, lostBy, width, label }: PlayerCaptureRowProps) {
   const { theme } = useTheme();
-  const theyTook = getCapturedPieces(fen, myColor);
-  const youTook = getCapturedPieces(fen, myColor === 'w' ? 'b' : 'w');
+  const pieces = getCapturedPieces(fen, lostBy);
+  const size = 22;
 
   return (
-    <View
-      style={[
-        styles.column,
-        {
-          width,
-          borderColor: theme.colors.border,
-          backgroundColor: theme.colors.surface,
-        },
-      ]}
-    >
+    <View style={[styles.row, { width }]}>
+      {!!label && (
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.label,
+            { color: theme.colors.textMuted, fontFamily: fontFamilyFor(theme, 'body') },
+          ]}
+        >
+          {label}
+        </Text>
+      )}
       <ScrollView
-        style={styles.half}
-        contentContainerStyle={styles.stack}
-        showsVerticalScrollIndicator={false}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.captures}
+        contentContainerStyle={styles.content}
       >
-        {theyTook.map((p) => (
-          <SilhouettePieceTile
-            key={p.key}
-            type={p.type}
-            color={p.color}
-            size={tileSize}
-          />
-        ))}
-      </ScrollView>
-      <View style={[styles.divider, { backgroundColor: theme.colors.border }]} />
-      <ScrollView
-        style={styles.half}
-        contentContainerStyle={styles.stack}
-        showsVerticalScrollIndicator={false}
-      >
-        {youTook.map((p) => (
-          <SilhouettePieceTile
-            key={p.key}
-            type={p.type}
-            color={p.color}
-            size={tileSize}
-          />
+        {pieces.map((p) => (
+          <SilhouettePieceTile key={p.key} type={p.type} color={p.color} size={size} />
         ))}
       </ScrollView>
     </View>
@@ -68,27 +48,24 @@ export function CapturedSideColumn({
 }
 
 const styles = StyleSheet.create({
-  column: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingVertical: 6,
-    paddingHorizontal: 4,
+  row: {
+    height: 26,
+    flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
-    height: '100%',
+    gap: 6,
   },
-  half: {
-    flex: 1,
-    width: '100%',
+  label: {
+    fontSize: 12,
+    maxWidth: '48%',
   },
-  stack: {
+  captures: {
+    flex: 1,
+    height: 26,
+  },
+  content: {
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 2,
-  },
-  divider: {
-    width: '70%',
-    height: 1,
-    marginVertical: 6,
+    gap: 2,
+    minHeight: 26,
+    paddingHorizontal: 2,
   },
 });

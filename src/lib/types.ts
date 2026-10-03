@@ -25,6 +25,8 @@ export type PublicGame = {
   isCheckmate: boolean;
   isDraw: boolean;
   isStalemate: boolean;
+  /** Server clock. Older snapshots must not replace a newer board. */
+  updatedAt?: number;
 };
 
 export type Session = {

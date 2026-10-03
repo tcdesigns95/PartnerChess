@@ -1,7 +1,6 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import Svg from 'react-native-svg';
-import { PIECE_VIEWBOX, PiecePath, type PieceColor, type PieceType } from './ChessPiece';
+import { ChessPiece, type PieceColor, type PieceType } from './ChessPiece';
 
 type SilhouettePieceTileProps = {
   type: PieceType;
@@ -15,15 +14,9 @@ export function SilhouettePieceTile({
   color,
   size = 36,
 }: SilhouettePieceTileProps) {
-  const isBlackPiece = color === 'b';
-  const fill = isBlackPiece ? '#121212' : '#FFFFFF';
-  const stroke = '#121212';
-
   return (
     <View style={[styles.wrap, { width: size, height: size }]}>
-      <Svg width={size} height={size} viewBox={PIECE_VIEWBOX}>
-        <PiecePath type={type} fill={fill} stroke={stroke} outlined={!isBlackPiece} />
-      </Svg>
+      <ChessPiece type={type} color={color} size={size} />
     </View>
   );
 }
