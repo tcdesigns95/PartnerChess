@@ -19,9 +19,12 @@ export function shouldApplySnapshot(input: {
   status: string;
   heldRevision: number;
   pending: PendingMove | null;
+  /** A newer snapshot that puts a move back on purpose. */
+  undo?: boolean;
 }): boolean {
-  const { rev, fen, status, heldRevision, pending } = input;
+  const { rev, fen, status, heldRevision, pending, undo } = input;
   if (!pending) return rev >= heldRevision;
+  if (undo && rev > pending.baseRev) return true;
   if (fen === pending.fen) return true;
   if (fen === pending.baseFen) {
     return pending.giveUp === true || status === 'finished';

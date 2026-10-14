@@ -122,6 +122,7 @@ export function GameScreen({ navigation }: Props) {
       status: g.status,
       heldRevision: revisionRef.current,
       pending,
+      undo: g.undone,
     });
     absorbChat(g.chat ?? [], chatHydrated.current);
     chatHydrated.current = true;
@@ -391,6 +392,19 @@ export function GameScreen({ navigation }: Props) {
     openChat();
   };
 
+  const takeBack = () => {
+    const seat = sessionRef.current;
+    if (!seat || pendingMoveRef.current) return;
+    getSocket().emit('takeBack', { gameId: seat.gameId, playerId: seat.playerId }, (res) => {
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setError('');
+      applyGame(res.game);
+    });
+  };
+
   const resign = () => {
     if (!session) return;
     const go = () =>
@@ -590,6 +604,35 @@ export function GameScreen({ navigation }: Props) {
             </Text>
           )}
         </View>
+        {(game.backs ?? 0) > 0 &&
+          !(
+            game.status === 'finished' &&
+            (/resign/i.test(game.result || '') || /on time/i.test(game.result || ''))
+          ) && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Back, ${game.backs} left`}
+            onPress={takeBack}
+            style={({ pressed }) => [
+              styles.backBtn,
+              {
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.accent,
+                opacity: pressed ? 0.7 : 1,
+              },
+            ]}
+          >
+            <Text
+              style={{
+                color: theme.colors.text,
+                fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                fontSize: 15,
+              }}
+            >
+              Back
+            </Text>
+          </Pressable>
+        )}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={
@@ -930,6 +973,14 @@ const styles = StyleSheet.create({
   iconBtn: {
     width: 44,
     height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backBtn: {
+    height: 44,
+    paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 1,
     alignItems: 'center',

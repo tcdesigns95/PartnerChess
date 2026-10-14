@@ -10,6 +10,7 @@ import { Server, type Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
 import { bankRemaining, chargeTurn, clockFromChoice, type GameClock } from './clock';
 import { chargeLog, closeLog, logFor, startLog, viewElapsed, type TimeLog } from './elapsed';
+import { canTakeBack, keepClock, keepLog, rememberPosition, type PositionSnap } from './takeback';
 import { notifyPlayer, parseSubscription, pushPublicKey, saveSubscription } from './push';
 
 /** `npm --prefix server` and Docker set cwd to `server/`. A repo-root cwd still works. */
@@ -58,6 +59,10 @@ export type StoredGame = {
   clock?: GameClock;
   /** Count-up time for the match and for each player. */
   log?: TimeLog;
+  /** Positions before the last few moves. At most four. */
+  history?: PositionSnap[];
+  /** The latest change put a move back. */
+  undone?: boolean;
 };
 
 type ClientToServer = {
@@ -82,6 +87,10 @@ type ClientToServer = {
     cb: (res: { ok: true } | { ok: false; error: string }) => void,
   ) => void;
   resign: (
+    payload: { gameId: string; playerId: string },
+    cb: (res: { ok: true; game: PublicGame } | { ok: false; error: string }) => void,
+  ) => void;
+  takeBack: (
     payload: { gameId: string; playerId: string },
     cb: (res: { ok: true; game: PublicGame } | { ok: false; error: string }) => void,
   ) => void;
@@ -127,6 +136,9 @@ export type PublicGame = {
   clock?: { whiteMs: number; blackMs: number };
   /** Time used so far: the match, white, and black. */
   elapsed?: { gameMs: number; whiteMs: number; blackMs: number };
+  /** How many moves can still be taken back. */
+  backs?: number;
+  undone?: boolean;
 };
 
 const games = new Map<string, StoredGame>();
@@ -188,6 +200,20 @@ function cloneGame(game: StoredGame): StoredGame {
     lastMove: game.lastMove ? { ...game.lastMove } : undefined,
     clock: game.clock ? { ...game.clock } : undefined,
     log: game.log ? { ...game.log } : undefined,
+    history: game.history?.map((entry) => ({
+      ...entry,
+      lastMove: entry.lastMove ? { ...entry.lastMove } : undefined,
+    })),
+  };
+}
+
+function snapOf(game: StoredGame): PositionSnap {
+  return {
+    fen: game.fen,
+    pgn: game.pgn,
+    lastMove: game.lastMove ? { ...game.lastMove } : undefined,
+    status: game.status,
+    result: game.result,
   };
 }
 
@@ -316,6 +342,8 @@ function toPublic(game: StoredGame, connectedIds: Set<string>): PublicGame {
         }
       : undefined,
     elapsed: publicElapsed(game, chess.turn(), now),
+    backs: game.history?.length ?? 0,
+    undone: game.undone || undefined,
   };
 }
 
@@ -614,6 +642,8 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
         }
         const expected = game.updatedAt;
         const next = cloneGame(game);
+        next.history = rememberPosition(next.history, snapOf(game));
+        next.undone = false;
         next.fen = chess.fen();
         next.pgn = chess.pgn();
         next.lastMove = { from: move.from, to: move.to };
@@ -633,6 +663,53 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
       cb({ ok: false, error: 'Move did not save, try again' });
     } catch {
       cb({ ok: false, error: 'Illegal move' });
+    }
+  });
+
+  socket.on('takeBack', async (payload, cb) => {
+    try {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const game = await loadGame(payload.gameId);
+        if (!game) {
+          cb({ ok: false, error: 'Game not found' });
+          return;
+        }
+        const color = colorOf(game, payload.playerId);
+        if (!color) {
+          cb({ ok: false, error: 'Not your game' });
+          return;
+        }
+        if (!canTakeBack(game)) {
+          cb({ ok: false, error: 'Nothing to take back' });
+          return;
+        }
+        const history = game.history ?? [];
+        const snap = history[history.length - 1];
+        const now = Date.now();
+        const turn = new Chess(game.fen).turn();
+        const expected = game.updatedAt;
+        const next = cloneGame(game);
+        next.history = history.slice(0, -1);
+        next.fen = snap.fen;
+        next.pgn = snap.pgn;
+        next.lastMove = snap.lastMove ? { ...snap.lastMove } : undefined;
+        next.status = snap.status;
+        next.result = snap.result;
+        next.clock = keepClock(game.clock, turn, game.status, now);
+        next.log = keepLog(game.log, turn, game.status, now);
+        next.undone = true;
+        next.updatedAt = Math.max(now, expected + 1);
+        if (!(await saveGame(next, expected))) continue;
+        emitGame(next);
+        const actor = next.players[color]?.name || 'Your partner';
+        await notifySeat(otherPlayerId(next, color), 'Take back', `${actor} took a move back`);
+        cb({ ok: true, game: toPublic(next, connectedPlayersFor(next)) });
+        return;
+      }
+      cb({ ok: false, error: 'Could not take that back' });
+    } catch (err) {
+      console.error(err);
+      cb({ ok: false, error: 'Could not take that back' });
     }
   });
 

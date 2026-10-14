@@ -31,6 +31,9 @@ export type PublicGame = {
   clock?: { whiteMs: number; blackMs: number };
   /** Time used so far by the match and by each player, counted up to the moment the server sent it. */
   elapsed?: { gameMs: number; whiteMs: number; blackMs: number };
+  /** How many moves can still be taken back, up to four. */
+  backs?: number;
+  undone?: boolean;
 };
 
 export type Session = {
