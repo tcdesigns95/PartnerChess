@@ -16,6 +16,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { ChessPiece } from '../components/ChessPiece';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
+import { CLOCK_PRESETS, type ClockPresetId } from '../lib/clock';
 import { clearInviteCodeFromUrl, getSocket } from '../lib/socket';
 import { loadDisplayName, loadSession, saveDisplayName, saveSession } from '../lib/session';
 import { useKeyboardInset } from '../lib/useKeyboardInset';
@@ -28,6 +29,7 @@ export function HomeScreen({ navigation }: Props) {
   const { height, width } = useWindowDimensions();
   const keyboardInset = useKeyboardInset();
   const [name, setName] = useState('');
+  const [clockId, setClockId] = useState<ClockPresetId>('10m');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [connected, setConnected] = useState(false);
@@ -97,7 +99,8 @@ export function HomeScreen({ navigation }: Props) {
     setBusy(true);
     setError('');
     void saveDisplayName(trimmed);
-    getSocket().emit('createGame', { name: trimmed, preferColor: 'random' }, async (res) => {
+    const clockMs = CLOCK_PRESETS.find((preset) => preset.id === clockId)?.ms ?? 0;
+    getSocket().emit('createGame', { name: trimmed, preferColor: 'random', clockMs }, async (res) => {
       setBusy(false);
       if (!res.ok) {
         setError(res.error);
@@ -182,6 +185,37 @@ export function HomeScreen({ navigation }: Props) {
                 },
               ]}
             />
+
+            <View style={styles.clocks}>
+              {CLOCK_PRESETS.map((preset) => {
+                const selected = preset.id === clockId;
+                return (
+                  <Pressable
+                    key={preset.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={preset.label}
+                    onPress={() => setClockId(preset.id)}
+                    style={[
+                      styles.clockChip,
+                      {
+                        borderColor: selected ? theme.colors.text : theme.colors.border,
+                        backgroundColor: selected ? theme.colors.text : theme.colors.surface,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        color: selected ? theme.colors.accentText : theme.colors.text,
+                        fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                        fontSize: 13,
+                      }}
+                    >
+                      {preset.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
 
             <Pressable
               accessibilityRole="button"
@@ -299,6 +333,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     minHeight: 52,
     fontSize: 16,
+  },
+  clocks: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  clockChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    minHeight: 36,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   play: {
     borderRadius: 14,

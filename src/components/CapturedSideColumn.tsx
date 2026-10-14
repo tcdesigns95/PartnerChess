@@ -12,10 +12,26 @@ type PlayerCaptureRowProps = {
   width: number;
   /** Name of the player sitting on this edge. */
   label?: string;
+  /** Clock on this player's side. */
+  aside?: string;
+  asideColor?: string;
+  /** Spoken form of the clock, such as "9:58 left" or "4:12 used". */
+  asideLabel?: string;
+  /** Time this player has used, shown beside a countdown clock. */
+  used?: string;
 };
 
 /** Captured pieces along one player's edge of the board. */
-export function PlayerCaptureRow({ fen, lostBy, width, label }: PlayerCaptureRowProps) {
+export function PlayerCaptureRow({
+  fen,
+  lostBy,
+  width,
+  label,
+  aside,
+  asideColor,
+  asideLabel,
+  used,
+}: PlayerCaptureRowProps) {
   const { theme } = useTheme();
   const pieces = getCapturedPieces(fen, lostBy);
   const size = 22;
@@ -25,9 +41,13 @@ export function PlayerCaptureRow({ fen, lostBy, width, label }: PlayerCaptureRow
       {!!label && (
         <Text
           numberOfLines={1}
-          style={[
+            style={[
             styles.label,
-            { color: theme.colors.textMuted, fontFamily: fontFamilyFor(theme, 'body') },
+            {
+              color: theme.colors.textMuted,
+              fontFamily: fontFamilyFor(theme, 'body'),
+              maxWidth: used ? '34%' : '48%',
+            },
           ]}
         >
           {label}
@@ -42,8 +62,30 @@ export function PlayerCaptureRow({ fen, lostBy, width, label }: PlayerCaptureRow
         {pieces.map((p) => (
           <SilhouettePieceTile key={p.key} type={p.type} color={p.color} size={size} />
         ))}
-      </ScrollView>
-    </View>
+        </ScrollView>
+        {!!used && (
+          <Text
+            accessibilityLabel={`${used} used`}
+            style={[
+              styles.used,
+              { color: theme.colors.textMuted, fontFamily: fontFamilyFor(theme, 'body') },
+            ]}
+          >
+            {used}
+          </Text>
+        )}
+        {!!aside && (
+          <Text
+            accessibilityLabel={asideLabel || aside}
+            style={[
+              styles.aside,
+              { color: asideColor || theme.colors.text, fontFamily: fontFamilyFor(theme, 'body', 'bold') },
+            ]}
+          >
+            {aside}
+          </Text>
+        )}
+      </View>
   );
 }
 
@@ -56,11 +98,21 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 12,
-    maxWidth: '48%',
   },
   captures: {
     flex: 1,
     height: 26,
+  },
+  used: {
+    fontSize: 12,
+    fontVariant: ['tabular-nums'],
+    textAlign: 'right',
+  },
+  aside: {
+    fontSize: 14,
+    fontVariant: ['tabular-nums'],
+    minWidth: 44,
+    textAlign: 'right',
   },
   content: {
     alignItems: 'center',
