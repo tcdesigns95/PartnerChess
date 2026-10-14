@@ -42,6 +42,10 @@ type ClientToServer = {
     payload: { gameId: string; playerId: string },
     cb: (res: { ok: true; game: PublicGame } | { ok: false; error: string }) => void,
   ) => void;
+  takeBack: (
+    payload: { gameId: string; playerId: string },
+    cb: (res: { ok: true; game: PublicGame } | { ok: false; error: string }) => void,
+  ) => void;
   getPushConfig: (cb: (res: { enabled: boolean; publicKey?: string }) => void) => void;
   savePushSubscription: (
     payload: {

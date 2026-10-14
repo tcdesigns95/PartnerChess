@@ -32,6 +32,12 @@ assert.equal(
 );
 
 assert.equal(
+  shouldApplySnapshot({ rev: 40, fen: base, status: 'active', heldRevision: 10, pending, undo: true }),
+  true,
+  'a take-back of this move replaces the optimistic board',
+);
+
+assert.equal(
   shouldApplySnapshot({ rev: 11, fen: moved, status: 'active', heldRevision: 10, pending }),
   true,
   'the server copy of this move replaces the optimistic one',
