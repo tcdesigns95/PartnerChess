@@ -10,13 +10,7 @@ import { Server, type Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
 import { bankRemaining, chargeTurn, clockFromChoice, type GameClock } from './clock';
 import { chargeLog, closeLog, logFor, startLog, viewElapsed, type TimeLog } from './elapsed';
-import {
-  canTakeBack,
-  rememberPosition,
-  resumeClock,
-  resumeLog,
-  type PositionSnap,
-} from './takeback';
+import { canTakeBack, keepClock, keepLog, rememberPosition, type PositionSnap } from './takeback';
 import { notifyPlayer, parseSubscription, pushPublicKey, saveSubscription } from './push';
 
 /** `npm --prefix server` and Docker set cwd to `server/`. A repo-root cwd still works. */
@@ -209,8 +203,6 @@ function cloneGame(game: StoredGame): StoredGame {
     history: game.history?.map((entry) => ({
       ...entry,
       lastMove: entry.lastMove ? { ...entry.lastMove } : undefined,
-      clock: entry.clock ? { ...entry.clock } : undefined,
-      log: entry.log ? { ...entry.log } : undefined,
     })),
   };
 }
@@ -222,8 +214,6 @@ function snapOf(game: StoredGame): PositionSnap {
     lastMove: game.lastMove ? { ...game.lastMove } : undefined,
     status: game.status,
     result: game.result,
-    clock: game.clock ? { ...game.clock } : undefined,
-    log: game.log ? { ...game.log } : undefined,
   };
 }
 
@@ -696,6 +686,7 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
         const history = game.history ?? [];
         const snap = history[history.length - 1];
         const now = Date.now();
+        const turn = new Chess(game.fen).turn();
         const expected = game.updatedAt;
         const next = cloneGame(game);
         next.history = history.slice(0, -1);
@@ -704,8 +695,8 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
         next.lastMove = snap.lastMove ? { ...snap.lastMove } : undefined;
         next.status = snap.status;
         next.result = snap.result;
-        next.clock = resumeClock(snap.clock, now);
-        next.log = resumeLog(snap.log, now);
+        next.clock = keepClock(game.clock, turn, game.status, now);
+        next.log = keepLog(game.log, turn, game.status, now);
         next.undone = true;
         next.updatedAt = Math.max(now, expected + 1);
         if (!(await saveGame(next, expected))) continue;

@@ -1,5 +1,5 @@
-import type { GameClock } from './clock';
-import type { TimeLog } from './elapsed';
+import { chargeTurn, type GameClock } from './clock';
+import { chargeLog, type TimeLog } from './elapsed';
 
 type PlayerStatus = 'waiting' | 'active' | 'finished';
 
@@ -10,8 +10,6 @@ export type PositionSnap = {
   lastMove?: { from: string; to: string };
   status: PlayerStatus;
   result?: string;
-  clock?: GameClock;
-  log?: TimeLog;
 };
 
 export const MAX_BACKS = 4;
@@ -28,17 +26,30 @@ export function canTakeBack(game: { status: string; result?: string; history?: u
   return true;
 }
 
-/** Put the side to move back on the clock from now, with the time they had before that move. */
-export function resumeClock(clock: GameClock | undefined, now: number): GameClock | undefined {
+/**
+ * A take-back changes the position and whose turn it is.
+ * Time already spent stays spent, and the clock keeps running for the side to move.
+ */
+export function keepClock(
+  clock: GameClock | undefined,
+  turn: 'w' | 'b',
+  status: string,
+  now: number,
+): GameClock | undefined {
   if (!clock) return undefined;
-  return { ...clock, turnStartedAt: clock.turnStartedAt ? now : clock.turnStartedAt };
+  if (status === 'active') return chargeTurn(clock, turn, now);
+  if (status === 'finished') return { ...clock, turnStartedAt: now };
+  return clock;
 }
 
-export function resumeLog(log: TimeLog | undefined, now: number): TimeLog | undefined {
+export function keepLog(
+  log: TimeLog | undefined,
+  turn: 'w' | 'b',
+  status: string,
+  now: number,
+): TimeLog | undefined {
   if (!log) return undefined;
-  return {
-    ...log,
-    finishedAt: 0,
-    turnStartedAt: log.turnStartedAt ? now : log.turnStartedAt,
-  };
+  if (status === 'active') return chargeLog(log, turn, now);
+  if (status === 'finished') return { ...log, finishedAt: 0, turnStartedAt: now };
+  return log;
 }

@@ -24,6 +24,32 @@ if (!created.ok) throw new Error(created.error);
 const joined = await emit(black, 'joinGame', { code: created.game.code, name: 'Partner' });
 if (!joined.ok) throw new Error(joined.error);
 
+await new Promise((r) => setTimeout(r, 1300));
+const timed = await emit(white, 'makeMove', {
+  gameId: created.game.id,
+  playerId: created.playerId,
+  from: 'e2',
+  to: 'e4',
+});
+if (!timed.ok) throw new Error(timed.error);
+const whiteLeft = timed.game.clock.whiteMs;
+const whiteUsed = timed.game.elapsed.whiteMs;
+if (whiteLeft > 10 * 60 * 1000 - 900) throw new Error(`white clock did not run ${whiteLeft}`);
+await new Promise((r) => setTimeout(r, 900));
+const undone = await emit(white, 'takeBack', { gameId: created.game.id, playerId: created.playerId });
+if (!undone.ok) throw new Error(undone.error);
+if (undone.game.turn !== 'w') throw new Error('take back did not return the turn');
+if (undone.game.clock.whiteMs > whiteLeft + 400) {
+  throw new Error(`white clock was refunded ${whiteLeft} -> ${undone.game.clock.whiteMs}`);
+}
+if (undone.game.elapsed.whiteMs + 200 < whiteUsed) {
+  throw new Error(`white time was erased ${whiteUsed} -> ${undone.game.elapsed.whiteMs}`);
+}
+if (undone.game.elapsed.gameMs < 1800) throw new Error(`game clock stopped ${undone.game.elapsed.gameMs}`);
+if (undone.game.clock.blackMs > 10 * 60 * 1000 - 500) {
+  throw new Error(`black clock paused on take back ${undone.game.clock.blackMs}`);
+}
+
 const moves = [
   ['w', 'e2', 'e4'],
   ['b', 'e7', 'e5'],
@@ -68,9 +94,6 @@ const again = await emit(black, 'makeMove', {
 });
 if (!again.ok) throw new Error(again.error);
 if (again.game.backs !== 1) throw new Error(`new move should allow one back, got ${again.game.backs}`);
-if (again.game.clock.blackMs < 10 * 60 * 1000 - 5_000) {
-  throw new Error(`black clock was not restored ${again.game.clock.blackMs}`);
-}
 
 white.close();
 black.close();
