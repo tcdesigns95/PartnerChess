@@ -19,7 +19,7 @@ function resolveSocketUrl(): string {
 
 type ClientToServer = {
   createGame: (
-    payload: { name: string; preferColor?: PlayerColor | 'random' },
+    payload: { name: string; preferColor?: PlayerColor | 'random'; clockMs?: number },
     cb: (res: { ok: true; game: PublicGame; playerId: string; color: PlayerColor } | { ok: false; error: string }) => void,
   ) => void;
   joinGame: (
@@ -41,6 +41,15 @@ type ClientToServer = {
   resign: (
     payload: { gameId: string; playerId: string },
     cb: (res: { ok: true; game: PublicGame } | { ok: false; error: string }) => void,
+  ) => void;
+  getPushConfig: (cb: (res: { enabled: boolean; publicKey?: string }) => void) => void;
+  savePushSubscription: (
+    payload: {
+      gameId: string;
+      playerId: string;
+      subscription: { endpoint: string; keys: { p256dh: string; auth: string } };
+    },
+    cb: (res: { ok: true } | { ok: false; error: string }) => void,
   ) => void;
 };
 

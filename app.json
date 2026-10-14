@@ -22,7 +22,16 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "name": "Couple Chess",
+      "shortName": "Chess",
+      "description": "A board for two. One link.",
+      "themeColor": "#07080F",
+      "backgroundColor": "#07080F",
+      "display": "standalone",
+      "startUrl": "/",
+      "lang": "en",
+      "orientation": "portrait"
     },
     "plugins": [
       "expo-font"

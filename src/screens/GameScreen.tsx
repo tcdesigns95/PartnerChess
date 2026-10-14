@@ -23,7 +23,9 @@ import { ChatPanel } from '../components/ChatPanel';
 import { ChatIcon, GameMenu, MenuButton } from '../components/GameMenu';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
 import { getSocket, buildInviteLink, resumeLiveSocket } from '../lib/socket';
+import { enableMoveAlerts, resumeMoveAlerts } from '../lib/alerts';
 import { shouldApplySnapshot, type PendingMove } from '../lib/applySnapshot';
+import { formatClock } from '../lib/clock';
 import { clearSession, loadSession, saveSession } from '../lib/session';
 import { useKeyboardInset } from '../lib/useKeyboardInset';
 import type { ChatMessage, PublicGame, RootStackParamList, Session } from '../lib/types';
@@ -43,12 +45,31 @@ export function GameScreen({ navigation }: Props) {
   const [chatPreview, setChatPreview] = useState<ChatMessage | null>(null);
   const [promo, setPromo] = useState<{ from: string; to: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [alertsOn, setAlertsOn] = useState(false);
+  const [hint, setHint] = useState('');
+  const [tick, setTick] = useState(0);
   const sharePrompted = useRef(false);
   const sessionRef = useRef<Session | null>(null);
   const chatOpenRef = useRef(false);
   const revisionRef = useRef(0);
   const pendingMoveRef = useRef<(PendingMove & { token: number; tries: number; from: string; to: string; promotion?: string }) | null>(null);
   const moveToken = useRef(0);
+  const clockSeen = useRef({ at: 0, whiteMs: 0, blackMs: 0, turn: 'w' as 'w' | 'b', active: false, key: '' });
+  const askedFlag = useRef(false);
+  const clockKey = game?.clock
+    ? `${game.updatedAt}:${game.clock.whiteMs}:${game.clock.blackMs}:${game.turn}:${game.status}`
+    : '';
+  if (game?.clock && clockSeen.current.key !== clockKey) {
+    clockSeen.current = {
+      at: Date.now(),
+      whiteMs: game.clock.whiteMs,
+      blackMs: game.clock.blackMs,
+      turn: game.turn,
+      active: game.status === 'active',
+      key: clockKey,
+    };
+    askedFlag.current = false;
+  }
   const chatHydrated = useRef(false);
   const seenChatIds = useRef(new Set<string>());
   const hasGameRef = useRef(false);
@@ -166,6 +187,29 @@ export function GameScreen({ navigation }: Props) {
       cancelled = true;
     };
   }, [rejoin]);
+
+  useEffect(() => {
+    if (!session || Platform.OS !== 'web') return;
+    void resumeMoveAlerts(session).then((on) => {
+      if (on) setAlertsOn(true);
+    });
+  }, [session]);
+
+  useEffect(() => {
+    if (game?.status !== 'active' || !game.clock) return;
+    const id = setInterval(() => setTick((n) => n + 1), 250);
+    return () => clearInterval(id);
+  }, [game?.status, game?.clock]);
+
+  useEffect(() => {
+    if (!game?.clock || game.status !== 'active') return;
+    const anchor = clockSeen.current;
+    const base = game.turn === 'w' ? anchor.whiteMs : anchor.blackMs;
+    const left = anchor.active && anchor.turn === game.turn ? Math.max(0, base - (Date.now() - anchor.at)) : base;
+    if (left > 0 || askedFlag.current) return;
+    askedFlag.current = true;
+    rejoin(false);
+  }, [tick, game, rejoin]);
 
   useFocusEffect(
     useCallback(() => {
@@ -425,13 +469,26 @@ export function GameScreen({ navigation }: Props) {
   if (!mate && myTurn) detailParts.push('your move');
   else if (!mate && game.status === 'active' && opponent) detailParts.push(`${opponent}'s move`);
   const detail = detailParts.join(' · ');
+  const liveMs = (color: 'w' | 'b') => {
+    void tick;
+    if (!game.clock) return 0;
+    const anchor = clockSeen.current;
+    const base = color === 'w' ? anchor.whiteMs : anchor.blackMs;
+    if (!anchor.active || anchor.turn !== color) return base;
+    return Math.max(0, base - (Date.now() - anchor.at));
+  };
+  const clockTone = (color: 'w' | 'b') => {
+    if (!game.clock || game.status !== 'active' || game.turn !== color) return theme.colors.textMuted;
+    return liveMs(color) <= 15_000 ? theme.colors.danger : theme.colors.accent;
+  };
+  const opponentColor = session.color === 'w' ? 'b' : 'w';
   const bottomInset = Math.max(insets.bottom, 8);
   const hPad = 10;
   const areaW = bodyBox.w || winW;
   const areaH = bodyBox.h || Math.max(280, winH - insets.top - 64);
   const contentW = Math.max(0, areaW - hPad * 2);
   const contentH = Math.max(0, areaH - bottomInset);
-  const footerH = error ? 36 : 0;
+  const footerH = error || hint ? 36 : 0;
   const captureRowH = 26;
   const availW = contentW;
   const availH = contentH - footerH - captureRowH * 2 - 8;
@@ -546,6 +603,8 @@ export function GameScreen({ navigation }: Props) {
             lostBy={session.color}
             width={boardSize}
             label={opponent ?? 'Open seat'}
+            aside={game.clock ? formatClock(liveMs(opponentColor)) : undefined}
+            asideColor={clockTone(opponentColor)}
           />
           <View
             style={[
@@ -576,11 +635,26 @@ export function GameScreen({ navigation }: Props) {
             lostBy={session.color === 'w' ? 'b' : 'w'}
             width={boardSize}
             label={myName}
+            aside={game.clock ? formatClock(liveMs(session.color)) : undefined}
+            asideColor={clockTone(session.color)}
           />
         </View>
         </View>
 
         <View style={[styles.footer, footerH > 0 && { minHeight: footerH }]}>
+        {!!hint && !error && (
+          <Text
+            style={{
+              color: theme.colors.textMuted,
+              fontFamily: fontFamilyFor(theme, 'body'),
+              textAlign: 'center',
+              marginTop: 8,
+              fontSize: 13,
+            }}
+          >
+            {hint}
+          </Text>
+        )}
         {!!error && (
           <Text
             numberOfLines={2}
@@ -728,6 +802,23 @@ export function GameScreen({ navigation }: Props) {
             label: chatOpen ? 'Hide chat' : unread > 0 ? `Show chat (${unread})` : 'Show chat',
             onPress: toggleChat,
           },
+          ...(Platform.OS === 'web'
+            ? [
+                {
+                  label: alertsOn ? 'Alerts on' : 'Alert me when it is my move',
+                  onPress: () => {
+                    setMenuOpen(false);
+                    void enableMoveAlerts(session).then((message) => {
+                      if (message) setHint(message);
+                      else {
+                        setAlertsOn(true);
+                        setHint('Alerts are on for this phone.');
+                      }
+                    });
+                  },
+                },
+              ]
+            : []),
           { label: 'Resign', onPress: resign, danger: true },
           { label: 'End & leave', onPress: () => void leave(), danger: true },
         ]}

@@ -12,10 +12,13 @@ type PlayerCaptureRowProps = {
   width: number;
   /** Name of the player sitting on this edge. */
   label?: string;
+  /** Clock on this player's side. */
+  aside?: string;
+  asideColor?: string;
 };
 
 /** Captured pieces along one player's edge of the board. */
-export function PlayerCaptureRow({ fen, lostBy, width, label }: PlayerCaptureRowProps) {
+export function PlayerCaptureRow({ fen, lostBy, width, label, aside, asideColor }: PlayerCaptureRowProps) {
   const { theme } = useTheme();
   const pieces = getCapturedPieces(fen, lostBy);
   const size = 22;
@@ -42,8 +45,19 @@ export function PlayerCaptureRow({ fen, lostBy, width, label }: PlayerCaptureRow
         {pieces.map((p) => (
           <SilhouettePieceTile key={p.key} type={p.type} color={p.color} size={size} />
         ))}
-      </ScrollView>
-    </View>
+        </ScrollView>
+        {!!aside && (
+          <Text
+            accessibilityLabel={aside}
+            style={[
+              styles.aside,
+              { color: asideColor || theme.colors.text, fontFamily: fontFamilyFor(theme, 'body', 'bold') },
+            ]}
+          >
+            {aside}
+          </Text>
+        )}
+      </View>
   );
 }
 
@@ -61,6 +75,12 @@ const styles = StyleSheet.create({
   captures: {
     flex: 1,
     height: 26,
+  },
+  aside: {
+    fontSize: 14,
+    fontVariant: ['tabular-nums'],
+    minWidth: 44,
+    textAlign: 'right',
   },
   content: {
     alignItems: 'center',
