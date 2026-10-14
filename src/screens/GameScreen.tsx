@@ -25,7 +25,7 @@ import { useTheme, fontFamilyFor } from '../context/ThemeContext';
 import { getSocket, buildInviteLink, resumeLiveSocket } from '../lib/socket';
 import { enableMoveAlerts, resumeMoveAlerts } from '../lib/alerts';
 import { shouldApplySnapshot, type PendingMove } from '../lib/applySnapshot';
-import { formatClock } from '../lib/clock';
+import { formatClock, formatElapsed } from '../lib/clock';
 import { clearSession, loadSession, saveSession } from '../lib/session';
 import { useKeyboardInset } from '../lib/useKeyboardInset';
 import type { ChatMessage, PublicGame, RootStackParamList, Session } from '../lib/types';
@@ -55,6 +55,15 @@ export function GameScreen({ navigation }: Props) {
   const pendingMoveRef = useRef<(PendingMove & { token: number; tries: number; from: string; to: string; promotion?: string }) | null>(null);
   const moveToken = useRef(0);
   const clockSeen = useRef({ at: 0, whiteMs: 0, blackMs: 0, turn: 'w' as 'w' | 'b', active: false, key: '' });
+  const elapsedSeen = useRef({
+    at: 0,
+    gameMs: 0,
+    whiteMs: 0,
+    blackMs: 0,
+    turn: 'w' as 'w' | 'b',
+    active: false,
+    key: '',
+  });
   const askedFlag = useRef(false);
   const clockKey = game?.clock
     ? `${game.updatedAt}:${game.clock.whiteMs}:${game.clock.blackMs}:${game.turn}:${game.status}`
@@ -69,6 +78,20 @@ export function GameScreen({ navigation }: Props) {
       key: clockKey,
     };
     askedFlag.current = false;
+  }
+  const elapsedKey = game?.elapsed
+    ? `${game.updatedAt}:${game.elapsed.gameMs}:${game.elapsed.whiteMs}:${game.elapsed.blackMs}:${game.turn}:${game.status}`
+    : '';
+  if (game?.elapsed && elapsedSeen.current.key !== elapsedKey) {
+    elapsedSeen.current = {
+      at: Date.now(),
+      gameMs: game.elapsed.gameMs,
+      whiteMs: game.elapsed.whiteMs,
+      blackMs: game.elapsed.blackMs,
+      turn: game.turn,
+      active: game.status === 'active',
+      key: elapsedKey,
+    };
   }
   const chatHydrated = useRef(false);
   const seenChatIds = useRef(new Set<string>());
@@ -196,10 +219,10 @@ export function GameScreen({ navigation }: Props) {
   }, [session]);
 
   useEffect(() => {
-    if (game?.status !== 'active' || !game.clock) return;
+    if (game?.status !== 'active' || (!game.clock && !game.elapsed)) return;
     const id = setInterval(() => setTick((n) => n + 1), 250);
     return () => clearInterval(id);
-  }, [game?.status, game?.clock]);
+  }, [game?.status, game?.clock, game?.elapsed]);
 
   useEffect(() => {
     if (!game?.clock || game.status !== 'active') return;
@@ -481,6 +504,23 @@ export function GameScreen({ navigation }: Props) {
     if (!game.clock || game.status !== 'active' || game.turn !== color) return theme.colors.textMuted;
     return liveMs(color) <= 15_000 ? theme.colors.danger : theme.colors.accent;
   };
+  const liveTaken = (color: 'w' | 'b') => {
+    void tick;
+    if (!game.elapsed) return 0;
+    const anchor = elapsedSeen.current;
+    const base = color === 'w' ? anchor.whiteMs : anchor.blackMs;
+    if (!anchor.active || anchor.turn !== color) return base;
+    return base + Math.max(0, Date.now() - anchor.at);
+  };
+  const liveGameMs = () => {
+    void tick;
+    if (!game.elapsed) return 0;
+    const anchor = elapsedSeen.current;
+    if (!anchor.active) return anchor.gameMs;
+    return anchor.gameMs + Math.max(0, Date.now() - anchor.at);
+  };
+  const gameTime = game.elapsed ? formatElapsed(liveGameMs()) : '';
+  const usedLabel = (color: 'w' | 'b') => (game.elapsed ? formatElapsed(liveTaken(color)) : '');
   const opponentColor = session.color === 'w' ? 'b' : 'w';
   const bottomInset = Math.max(insets.bottom, 8);
   const hPad = 10;
@@ -534,6 +574,21 @@ export function GameScreen({ navigation }: Props) {
               {copied ? 'Invite copied' : detail}
             </Text>
           </Text>
+          {!!gameTime && (
+            <Text
+              accessibilityLabel={`Game time ${gameTime}`}
+              numberOfLines={1}
+              style={{
+                marginTop: 2,
+                color: theme.colors.text,
+                fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                fontSize: 13,
+                fontVariant: ['tabular-nums'],
+              }}
+            >
+              {`Game ${gameTime}`}
+            </Text>
+          )}
         </View>
         <Pressable
           accessibilityRole="button"
@@ -603,8 +658,26 @@ export function GameScreen({ navigation }: Props) {
             lostBy={session.color}
             width={boardSize}
             label={opponent ?? 'Open seat'}
-            aside={game.clock ? formatClock(liveMs(opponentColor)) : undefined}
-            asideColor={clockTone(opponentColor)}
+            used={game.clock ? usedLabel(opponentColor) : undefined}
+            aside={
+              game.clock
+                ? formatClock(liveMs(opponentColor))
+                : usedLabel(opponentColor) || undefined
+            }
+            asideColor={
+              game.clock
+                ? clockTone(opponentColor)
+                : game.status === 'active' && game.turn === opponentColor
+                  ? theme.colors.accent
+                  : theme.colors.text
+            }
+            asideLabel={
+              game.clock
+                ? `${formatClock(liveMs(opponentColor))} left`
+                : usedLabel(opponentColor)
+                  ? `${usedLabel(opponentColor)} used`
+                  : undefined
+            }
           />
           <View
             style={[
@@ -635,8 +708,24 @@ export function GameScreen({ navigation }: Props) {
             lostBy={session.color === 'w' ? 'b' : 'w'}
             width={boardSize}
             label={myName}
-            aside={game.clock ? formatClock(liveMs(session.color)) : undefined}
-            asideColor={clockTone(session.color)}
+            used={game.clock ? usedLabel(session.color) : undefined}
+            aside={
+              game.clock ? formatClock(liveMs(session.color)) : usedLabel(session.color) || undefined
+            }
+            asideColor={
+              game.clock
+                ? clockTone(session.color)
+                : game.status === 'active' && game.turn === session.color
+                  ? theme.colors.accent
+                  : theme.colors.text
+            }
+            asideLabel={
+              game.clock
+                ? `${formatClock(liveMs(session.color))} left`
+                : usedLabel(session.color)
+                  ? `${usedLabel(session.color)} used`
+                  : undefined
+            }
           />
         </View>
         </View>

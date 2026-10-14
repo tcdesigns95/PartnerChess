@@ -9,6 +9,7 @@ import { Redis } from 'ioredis';
 import { Server, type Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
 import { bankRemaining, chargeTurn, clockFromChoice, type GameClock } from './clock';
+import { chargeLog, closeLog, logFor, startLog, viewElapsed, type TimeLog } from './elapsed';
 import { notifyPlayer, parseSubscription, pushPublicKey, saveSubscription } from './push';
 
 /** `npm --prefix server` and Docker set cwd to `server/`. A repo-root cwd still works. */
@@ -55,6 +56,8 @@ export type StoredGame = {
   createdAt: number;
   updatedAt: number;
   clock?: GameClock;
+  /** Count-up time for the match and for each player. */
+  log?: TimeLog;
 };
 
 type ClientToServer = {
@@ -122,6 +125,8 @@ export type PublicGame = {
   isStalemate: boolean;
   updatedAt: number;
   clock?: { whiteMs: number; blackMs: number };
+  /** Time used so far: the match, white, and black. */
+  elapsed?: { gameMs: number; whiteMs: number; blackMs: number };
 };
 
 const games = new Map<string, StoredGame>();
@@ -182,6 +187,7 @@ function cloneGame(game: StoredGame): StoredGame {
     chat: game.chat.slice(),
     lastMove: game.lastMove ? { ...game.lastMove } : undefined,
     clock: game.clock ? { ...game.clock } : undefined,
+    log: game.log ? { ...game.log } : undefined,
   };
 }
 
@@ -233,7 +239,7 @@ async function saveGame(game: StoredGame, expectedUpdatedAt?: number): Promise<b
   return true;
 }
 
-async function loadGame(id: string): Promise<StoredGame | undefined> {
+async function readGame(id: string): Promise<StoredGame | undefined> {
   const client = getRedis();
   if (client) {
     const raw = await client.get(`chess:game:${id}`);
@@ -244,6 +250,16 @@ async function loadGame(id: string): Promise<StoredGame | undefined> {
     }
   }
   return games.get(id);
+}
+
+/** Older games have no count-up log. Attach one without moving the board revision. */
+async function loadGame(id: string): Promise<StoredGame | undefined> {
+  const game = await readGame(id);
+  if (!game || game.status === 'waiting' || game.log?.gameStartedAt) return game;
+  const next = cloneGame(game);
+  next.log = logFor(undefined, game, Date.now());
+  if (await saveGame(next, game.updatedAt)) return next;
+  return (await readGame(id)) ?? next;
 }
 
 async function loadByCode(code: string): Promise<StoredGame | undefined> {
@@ -299,7 +315,15 @@ function toPublic(game: StoredGame, connectedIds: Set<string>): PublicGame {
           blackMs: bankRemaining(game.clock, game.status, chess.turn(), 'b', now),
         }
       : undefined,
+    elapsed: publicElapsed(game, chess.turn(), now),
   };
+}
+
+function publicElapsed(game: StoredGame, turn: PlayerColor, now: number) {
+  if (game.status === 'waiting') return undefined;
+  const log = logFor(game.log, game, now);
+  if (!log.gameStartedAt) return undefined;
+  return viewElapsed(log, game.status, turn, now);
 }
 
 function connectedPlayersFor(game: StoredGame): Set<string> {
@@ -342,6 +366,7 @@ async function settleTimeout(game: StoredGame): Promise<StoredGame> {
   next.clock = chargeTurn(next.clock!, turn, now);
   if (turn === 'w') next.clock.whiteMs = 0;
   else next.clock.blackMs = 0;
+  next.log = closeLog(chargeLog(logFor(game.log, game, now), turn, now), now);
   next.updatedAt = Math.max(now, expected + 1);
   if (!(await saveGame(next, expected))) {
     return (await loadGame(game.id)) ?? game;
@@ -487,8 +512,10 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
       const next = cloneGame(game);
       next.players[color] = { id: playerId, name };
       next.status = next.players.w && next.players.b ? 'active' : 'waiting';
-      if (next.status === 'active' && next.clock) {
-        next.clock = { ...next.clock, turnStartedAt: Date.now() };
+      if (next.status === 'active') {
+        const now = Date.now();
+        if (next.clock) next.clock = { ...next.clock, turnStartedAt: now };
+        next.log = startLog(now);
       }
       next.updatedAt = Math.max(Date.now(), expected + 1);
       if (!(await saveGame(next, expected))) {
@@ -591,8 +618,10 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
         next.pgn = chess.pgn();
         next.lastMove = { from: move.from, to: move.to };
         if (next.clock) next.clock = chargeTurn(next.clock, color, now);
+        next.log = chargeLog(logFor(next.log, next, now), color, now);
         next.updatedAt = Math.max(now, expected + 1);
         finishIfNeeded(next);
+        if (next.status === 'finished' && next.log) next.log = closeLog(next.log, now);
         if (!(await saveGame(next, expected))) continue;
         emitGame(next);
         const opponent = otherPlayerId(next, color);
@@ -667,10 +696,13 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
         return;
       }
       const expected = game.updatedAt;
+      const now = Date.now();
+      const turn = new Chess(game.fen).turn();
       const next = cloneGame(game);
       next.status = 'finished';
       next.result = color === 'w' ? 'Black wins — white resigned' : 'White wins — black resigned';
-      next.updatedAt = Math.max(Date.now(), expected + 1);
+      next.log = closeLog(chargeLog(logFor(game.log, game, now), turn, now), now);
+      next.updatedAt = Math.max(now, expected + 1);
       if (!(await saveGame(next, expected))) continue;
       emitGame(next);
       cb({ ok: true, game: toPublic(next, connectedPlayersFor(next)) });

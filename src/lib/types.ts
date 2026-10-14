@@ -29,6 +29,8 @@ export type PublicGame = {
   updatedAt?: number;
   /** Time left for each side, already counted down to the moment the server sent it. */
   clock?: { whiteMs: number; blackMs: number };
+  /** Time used so far by the match and by each player, counted up to the moment the server sent it. */
+  elapsed?: { gameMs: number; whiteMs: number; blackMs: number };
 };
 
 export type Session = {
