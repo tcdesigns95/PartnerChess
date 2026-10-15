@@ -31,6 +31,10 @@ if (joined.color !== 'b') throw new Error(`joiner color ${joined.color}`);
 
 const seen = [];
 white.on('gameUpdated', (game) => seen.push(game.fen));
+let blackFen = '';
+black.on('gameUpdated', (game) => {
+  blackFen = game.fen;
+});
 
 const moved = await emit(white, 'makeMove', {
   gameId: created.game.id,
@@ -43,6 +47,22 @@ const fen = moved.game.fen;
 if (!fen.startsWith('rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR')) {
   throw new Error(`unexpected fen ${fen}`);
 }
+const heard = Date.now();
+while (!blackFen && Date.now() - heard < 1500) {
+  await new Promise((resolve) => setTimeout(resolve, 20));
+}
+if (blackFen !== fen) throw new Error(`partner did not see the move: ${blackFen}`);
+
+const again = await emit(white, 'makeMove', {
+  gameId: created.game.id,
+  playerId: created.playerId,
+  from: 'e2',
+  to: 'e4',
+  updatedAt: moved.game.updatedAt,
+});
+if (!again.ok) throw new Error(`retry ${again.error}`);
+if (again.game.fen !== fen) throw new Error(`retry rewound the move: ${again.game.fen}`);
+if (again.game.turn !== 'b') throw new Error('retry gave the mover another turn');
 
 const chat = await emit(black, 'sendChat', {
   gameId: created.game.id,

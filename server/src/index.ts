@@ -83,7 +83,7 @@ type ClientToServer = {
     cb: (res: { ok: true; games: GameSummary[] } | { ok: false; error: string }) => void,
   ) => void;
   makeMove: (
-    payload: { gameId: string; playerId: string; from: string; to: string; promotion?: string },
+    payload: { gameId: string; playerId: string; from: string; to: string; promotion?: string; updatedAt?: number },
     cb: (res: { ok: true; game: PublicGame } | { ok: false; error: string }) => void,
   ) => void;
   sendChat: (
@@ -294,6 +294,23 @@ async function readGame(id: string): Promise<StoredGame | undefined> {
   return games.get(id);
 }
 
+/**
+ * Use the position already in memory when this phone still has that revision.
+ * The save still checks Redis, so a newer write on another instance is not lost.
+ */
+function loadGameFast(id: string, rev?: number): Promise<StoredGame | undefined> {
+  const cached = games.get(id);
+  if (
+    cached &&
+    rev != null &&
+    cached.updatedAt === rev &&
+    (cached.status === 'waiting' || cached.log?.gameStartedAt)
+  ) {
+    return Promise.resolve(cached);
+  }
+  return loadGame(id);
+}
+
 /** Older games have no count-up log. Attach one without moving the board revision. */
 async function loadGame(id: string): Promise<StoredGame | undefined> {
   const game = await readGame(id);
@@ -463,6 +480,9 @@ const httpServer = createServer(app);
 const io = new Server<ClientToServer, ServerToClient>(httpServer, {
   path: SOCKET_PATH,
   cors: { origin: '*', methods: ['GET', 'POST'] },
+  // Notice a dropped phone quickly. The hosted socket itself ends at the function limit.
+  pingInterval: 8000,
+  pingTimeout: 4000,
 });
 
 const sharedRedis = getRedis();
@@ -642,36 +662,50 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
   });
 
   socket.on('makeMove', async (payload, cb) => {
+    let answered = false;
+    const reply = (res: { ok: true; game: PublicGame } | { ok: false; error: string }) => {
+      if (answered) return;
+      answered = true;
+      cb(res);
+    };
     try {
       for (let attempt = 0; attempt < 3; attempt++) {
-        const game = await loadGame(payload.gameId);
+        const game =
+          attempt === 0
+            ? await loadGameFast(payload.gameId, payload.updatedAt)
+            : await loadGame(payload.gameId);
         if (!game) {
-          cb({ ok: false, error: 'Game not found' });
+          reply({ ok: false, error: 'Game not found' });
           return;
         }
         if (game.status === 'finished') {
-          cb({ ok: false, error: 'Game is over' });
+          reply({ ok: false, error: 'Game is over' });
           return;
         }
         if (game.status === 'waiting') {
-          cb({ ok: false, error: 'Waiting for your partner to join' });
+          reply({ ok: false, error: 'Waiting for your partner to join' });
           return;
         }
         const color = colorOf(game, payload.playerId);
         if (!color) {
-          cb({ ok: false, error: 'Not your game' });
+          reply({ ok: false, error: 'Not your game' });
           return;
         }
         const now = Date.now();
         const turn = new Chess(game.fen).turn();
         if (game.clock && bankRemaining(game.clock, game.status, turn, color, now) <= 0) {
           await settleTimeout(game);
-          cb({ ok: false, error: 'Out of time' });
+          reply({ ok: false, error: 'Out of time' });
           return;
         }
         const chess = new Chess(game.fen);
         if (chess.turn() !== color) {
-          cb({ ok: false, error: 'Not your turn' });
+          // The phone retries when the first answer was lost. That move already landed.
+          if (game.lastMove?.from === payload.from && game.lastMove?.to === payload.to) {
+            reply({ ok: true, game: toPublic(game, connectedPlayersFor(game)) });
+            return;
+          }
+          reply({ ok: false, error: 'Not your turn' });
           return;
         }
         const moveOpts: {
@@ -697,7 +731,7 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
         }
         const move = chess.move(moveOpts);
         if (!move) {
-          cb({ ok: false, error: 'Illegal move' });
+          reply({ ok: false, error: 'Illegal move' });
           return;
         }
         const expected = game.updatedAt;
@@ -713,16 +747,21 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
         finishIfNeeded(next);
         if (next.status === 'finished' && next.log) next.log = closeLog(next.log, now);
         if (!(await saveGame(next, expected))) continue;
+        const pub = toPublic(next, connectedPlayersFor(next));
         emitGame(next);
-        const opponent = otherPlayerId(next, color);
+        reply({ ok: true, game: pub });
         const mover = next.players[color]?.name || 'Your partner';
-        await notifySeat(opponent, 'Your move', `${mover} played ${move.from} to ${move.to}`, next.code);
-        cb({ ok: true, game: toPublic(next, connectedPlayersFor(next)) });
+        void notifySeat(
+          otherPlayerId(next, color),
+          'Your move',
+          `${mover} played ${move.from} to ${move.to}`,
+          next.code,
+        ).catch((err) => console.error(err));
         return;
       }
-      cb({ ok: false, error: 'Move did not save, try again' });
+      reply({ ok: false, error: 'Move did not save, try again' });
     } catch {
-      cb({ ok: false, error: 'Illegal move' });
+      reply({ ok: false, error: 'Illegal move' });
     }
   });
 
@@ -760,10 +799,13 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
         next.undone = true;
         next.updatedAt = Math.max(now, expected + 1);
         if (!(await saveGame(next, expected))) continue;
+        const pub = toPublic(next, connectedPlayersFor(next));
         emitGame(next);
+        cb({ ok: true, game: pub });
         const actor = next.players[color]?.name || 'Your partner';
-        await notifySeat(otherPlayerId(next, color), 'Take back', `${actor} took a move back`, next.code);
-        cb({ ok: true, game: toPublic(next, connectedPlayersFor(next)) });
+        void notifySeat(otherPlayerId(next, color), 'Take back', `${actor} took a move back`, next.code).catch(
+          (err) => console.error(err),
+        );
         return;
       }
       cb({ ok: false, error: 'Could not take that back' });
@@ -809,8 +851,10 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
       next.updatedAt = Math.max(Date.now(), expected + 1);
       if (!(await saveGame(next, expected))) continue;
       io.to(next.id).emit('chatMessage', { ...message, gameId: next.id });
-      await notifySeat(otherPlayerId(next, color), player.name, text, next.code);
       cb({ ok: true });
+      void notifySeat(otherPlayerId(next, color), player.name, text, next.code).catch((err) =>
+        console.error(err),
+      );
       return;
     }
     cb({ ok: false, error: 'Could not send message' });

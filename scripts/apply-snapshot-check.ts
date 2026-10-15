@@ -67,4 +67,30 @@ assert.equal(
   'a finished game replaces an in-flight move',
 );
 
+assert.equal(
+  shouldApplySnapshot({
+    rev: 10,
+    fen: base,
+    status: 'active',
+    heldRevision: 10,
+    heldFen: moved,
+    pending: null,
+  }),
+  false,
+  'the same revision does not put the old position back',
+);
+
+assert.equal(
+  shouldApplySnapshot({
+    rev: 10,
+    fen: moved,
+    status: 'active',
+    heldRevision: 10,
+    heldFen: moved,
+    pending: null,
+  }),
+  true,
+  'the same revision can refresh the position already shown',
+);
+
 console.log('apply snapshot checks passed');

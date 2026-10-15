@@ -52,7 +52,8 @@ export function GameScreen({ navigation, route }: Props) {
   const sessionRef = useRef<Session | null>(null);
   const chatOpenRef = useRef(false);
   const revisionRef = useRef(0);
-  const pendingMoveRef = useRef<(PendingMove & { token: number; tries: number; from: string; to: string; promotion?: string }) | null>(null);
+  const shownFenRef = useRef('');
+  const pendingMoveRef = useRef<(PendingMove & { token: number; tries: number; from: string; to: string; promotion?: string; rejected?: boolean }) | null>(null);
   const moveToken = useRef(0);
   const clockSeen = useRef({ at: 0, whiteMs: 0, blackMs: 0, turn: 'w' as 'w' | 'b', active: false, key: '' });
   const elapsedSeen = useRef({
@@ -125,6 +126,7 @@ export function GameScreen({ navigation, route }: Props) {
       fen: g.fen,
       status: g.status,
       heldRevision: revisionRef.current,
+      heldFen: shownFenRef.current || undefined,
       pending,
       undo: g.undone,
     });
@@ -139,6 +141,7 @@ export function GameScreen({ navigation, route }: Props) {
     if (!apply) return;
     pendingMoveRef.current = null;
     revisionRef.current = Math.max(revisionRef.current, rev);
+    shownFenRef.current = g.fen;
     hasGameRef.current = true;
     setGame(g);
   }, [absorbChat]);
@@ -172,6 +175,14 @@ export function GameScreen({ navigation, route }: Props) {
           const next = { ...s, color, name, code: res.game.code };
           sessionRef.current = next;
           setSession(next);
+          const pendingNow = pendingMoveRef.current;
+          if (
+            pendingNow?.rejected &&
+            res.game.fen === pendingNow.baseFen &&
+            (res.game.updatedAt ?? 0) >= pendingNow.baseRev
+          ) {
+            pendingNow.giveUp = true;
+          }
           applyGame(res.game);
           void saveSession(next);
         },
@@ -206,6 +217,7 @@ export function GameScreen({ navigation, route }: Props) {
   const resetBoard = () => {
     pendingMoveRef.current = null;
     revisionRef.current = 0;
+    shownFenRef.current = '';
     chatHydrated.current = false;
     seenChatIds.current = new Set();
     hasGameRef.current = false;
@@ -288,7 +300,9 @@ export function GameScreen({ navigation, route }: Props) {
       if (Platform.OS === 'web' && typeof document !== 'undefined' && document.visibilityState === 'hidden') {
         return;
       }
-      rejoin(true);
+      const live = getSocket();
+      if (!live.connected) rejoin(true);
+      else rejoin(false);
     };
     const onChange = (state: AppStateStatus) => {
       if (state === 'active') wake();
@@ -326,6 +340,7 @@ export function GameScreen({ navigation, route }: Props) {
 
   const onMove = (from: string, to: string, promotion?: string) => {
     if (!session || !game) return;
+    if (pendingMoveRef.current) return;
     const baseFen = game.fen;
     let optimisticFen = baseFen;
     try {
@@ -335,6 +350,7 @@ export function GameScreen({ navigation, route }: Props) {
       const local = draft.move(opts as Parameters<Chess['move']>[0]);
       if (local) {
         optimisticFen = draft.fen();
+        shownFenRef.current = optimisticFen;
         hasGameRef.current = true;
         setGame({
           ...game,
@@ -363,23 +379,23 @@ export function GameScreen({ navigation, route }: Props) {
       promotion,
       tries: 0,
       giveUp: false,
+      rejected: false,
     };
     pendingMoveRef.current = pending;
 
     const emitMove = () => {
       const seat = sessionRef.current;
-      if (!seat || pendingMoveRef.current?.token !== token) return;
+      if (!seat || moveToken.current !== token) return;
       let settled = false;
       const timer = setTimeout(() => {
-        if (settled || pendingMoveRef.current?.token !== token) return;
+        if (settled || moveToken.current !== token) return;
         if (pending.tries >= 1) {
-          pending.giveUp = true;
           rejoin(false);
           return;
         }
         pending.tries += 1;
         emitMove();
-      }, 4500);
+      }, 2500);
 
       const socket = getSocket();
       if (!socket.connected) socket.connect();
@@ -391,15 +407,19 @@ export function GameScreen({ navigation, route }: Props) {
           from,
           to,
           promotion,
+          updatedAt: pending.baseRev || undefined,
         },
         (res) => {
           settled = true;
           clearTimeout(timer);
-          if (pendingMoveRef.current?.token !== token) return;
+          if (moveToken.current !== token) return;
           if (!res.ok) {
-            pending.giveUp = true;
-            if (res.error !== 'Not your turn' && res.error !== 'Move did not save, try again') {
+            const soft = res.error === 'Not your turn' || res.error === 'Move did not save, try again';
+            if (!soft) {
+              pending.giveUp = true;
               setError(res.error);
+            } else {
+              pending.rejected = true;
             }
             rejoin(false);
             return;

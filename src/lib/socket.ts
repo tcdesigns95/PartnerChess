@@ -35,7 +35,7 @@ type ClientToServer = {
     cb: (res: { ok: true; games: GameSummary[] } | { ok: false; error: string }) => void,
   ) => void;
   makeMove: (
-    payload: { gameId: string; playerId: string; from: string; to: string; promotion?: string },
+    payload: { gameId: string; playerId: string; from: string; to: string; promotion?: string; updatedAt?: number },
     cb: (res: { ok: true; game: PublicGame } | { ok: false; error: string }) => void,
   ) => void;
   sendChat: (
@@ -98,7 +98,8 @@ export function getSocket() {
       transports: isLoopbackUrl(url) ? ['websocket', 'polling'] : ['websocket'],
       reconnection: true,
       reconnectionAttempts: Infinity,
-      reconnectionDelay: 500,
+      reconnectionDelay: 200,
+      reconnectionDelayMax: 1500,
     });
   }
   return socket;
