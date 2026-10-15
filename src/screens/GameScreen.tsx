@@ -486,9 +486,9 @@ export function GameScreen({ navigation, route }: Props) {
         <Text style={{ color: theme.colors.danger, fontFamily: fontFamilyFor(theme, 'body') }}>
           {error}
         </Text>
-        <Pressable onPress={() => navigation.popToTop()} style={{ marginTop: 16 }}>
+        <Pressable onPress={backToGames} style={{ marginTop: 16 }}>
           <Text style={{ color: theme.colors.text, fontFamily: fontFamilyFor(theme, 'body', 'bold') }}>
-            Home
+            Your games
           </Text>
         </Pressable>
       </SafeAreaView>
@@ -519,6 +519,11 @@ export function GameScreen({ navigation, route }: Props) {
             >
               <Text style={{ color: theme.colors.text, fontFamily: fontFamilyFor(theme, 'body', 'bold') }}>
                 Back to the game
+              </Text>
+            </Pressable>
+            <Pressable onPress={backToGames} style={{ marginTop: 16 }}>
+              <Text style={{ color: theme.colors.text, fontFamily: fontFamilyFor(theme, 'body', 'bold') }}>
+                Your games
               </Text>
             </Pressable>
           </>
@@ -607,6 +612,23 @@ export function GameScreen({ navigation, route }: Props) {
     >
       <View style={styles.topBar}>
         <View style={{ flex: 1, minWidth: 0 }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Your games"
+            onPress={backToGames}
+            hitSlop={8}
+            style={({ pressed }) => [{ alignSelf: 'flex-start', opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Text
+              style={{
+                color: theme.colors.accent,
+                fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                fontSize: 13,
+              }}
+            >
+              Games
+            </Text>
+          </Pressable>
           <Text
             numberOfLines={1}
             style={{

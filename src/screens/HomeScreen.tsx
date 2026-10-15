@@ -226,7 +226,7 @@ export function HomeScreen({ navigation }: Props) {
                 {rows.map(({ seat, summary }) => {
                   const missing = known && !summary;
                   const title = summary?.opponent
-                    || (summary?.status === 'waiting' ? 'Open seat' : missing ? 'Unavailable' : 'Opening…');
+                    || (summary?.status === 'waiting' ? 'Open seat' : missing ? 'Unavailable' : 'Your game');
                   const line = !summary
                     ? `${seat.code} · ${missing ? 'Unavailable' : 'Opening…'}`
                     : summary.status === 'waiting'
@@ -251,10 +251,8 @@ export function HomeScreen({ navigation }: Props) {
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={`${title}. ${line}`}
-                        onPress={() => {
-                          if (summary) openSeat(seat);
-                        }}
-                        style={({ pressed }) => [{ flex: 1, minWidth: 0, opacity: pressed && summary ? 0.8 : 1 }]}
+                        onPress={() => openSeat(seat)}
+                        style={({ pressed }) => [{ flex: 1, minWidth: 0, opacity: pressed ? 0.8 : 1 }]}
                       >
                         <Text
                           numberOfLines={1}

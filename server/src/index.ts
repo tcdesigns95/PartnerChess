@@ -388,13 +388,12 @@ function otherPlayerId(game: StoredGame, color: PlayerColor): string | undefined
   return color === 'w' ? game.players.b?.id : game.players.w?.id;
 }
 
-async function notifySeat(playerId: string | undefined, title: string, body: string) {
+async function notifySeat(playerId: string | undefined, title: string, body: string, code?: string) {
   if (!playerId) return;
-  await notifyPlayer(getRedis(), playerId, {
-    title,
-    body,
-    url: 'https://couple-chess-opal.vercel.app/',
-  });
+  const url = code
+    ? `https://couple-chess-opal.vercel.app/?code=${encodeURIComponent(code)}`
+    : 'https://couple-chess-opal.vercel.app/';
+  await notifyPlayer(getRedis(), playerId, { title, body, url });
 }
 
 /** End the game when the side to move has no time left. */
@@ -418,8 +417,8 @@ async function settleTimeout(game: StoredGame): Promise<StoredGame> {
   emitGame(next);
   const winner = turn === 'w' ? next.players.b : next.players.w;
   const loser = turn === 'w' ? next.players.w : next.players.b;
-  await notifySeat(winner?.id, 'Time', next.result);
-  await notifySeat(loser?.id, 'Time', next.result);
+  await notifySeat(winner?.id, 'Time', next.result, next.code);
+  await notifySeat(loser?.id, 'Time', next.result, next.code);
   return next;
 }
 
@@ -717,7 +716,7 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
         emitGame(next);
         const opponent = otherPlayerId(next, color);
         const mover = next.players[color]?.name || 'Your partner';
-        await notifySeat(opponent, 'Your move', `${mover} played ${move.from} to ${move.to}`);
+        await notifySeat(opponent, 'Your move', `${mover} played ${move.from} to ${move.to}`, next.code);
         cb({ ok: true, game: toPublic(next, connectedPlayersFor(next)) });
         return;
       }
@@ -763,7 +762,7 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
         if (!(await saveGame(next, expected))) continue;
         emitGame(next);
         const actor = next.players[color]?.name || 'Your partner';
-        await notifySeat(otherPlayerId(next, color), 'Take back', `${actor} took a move back`);
+        await notifySeat(otherPlayerId(next, color), 'Take back', `${actor} took a move back`, next.code);
         cb({ ok: true, game: toPublic(next, connectedPlayersFor(next)) });
         return;
       }
@@ -810,7 +809,7 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
       next.updatedAt = Math.max(Date.now(), expected + 1);
       if (!(await saveGame(next, expected))) continue;
       io.to(next.id).emit('chatMessage', { ...message, gameId: next.id });
-      await notifySeat(otherPlayerId(next, color), player.name, text);
+      await notifySeat(otherPlayerId(next, color), player.name, text, next.code);
       cb({ ok: true });
       return;
     }
