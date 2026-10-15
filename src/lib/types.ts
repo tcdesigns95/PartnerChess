@@ -33,6 +33,8 @@ export type PublicGame = {
   elapsed?: { gameMs: number; whiteMs: number; blackMs: number };
   /** How many moves can still be taken back, up to four. */
   backs?: number;
+  /** How many taken-back moves can be played forward again, up to four. */
+  forwards?: number;
   undone?: boolean;
 };
 

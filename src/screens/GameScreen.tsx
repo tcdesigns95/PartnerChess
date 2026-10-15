@@ -467,6 +467,19 @@ export function GameScreen({ navigation, route }: Props) {
     });
   };
 
+  const takeForward = () => {
+    const seat = sessionRef.current;
+    if (!seat || pendingMoveRef.current) return;
+    getSocket().emit('takeForward', { gameId: seat.gameId, playerId: seat.playerId }, (res) => {
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setError('');
+      applyGame(res.game);
+    });
+  };
+
   const resign = () => {
     if (!session) return;
     const go = () =>
@@ -582,6 +595,12 @@ export function GameScreen({ navigation, route }: Props) {
   if (!mate && myTurn) detailParts.push('your move');
   else if (!mate && game.status === 'active' && opponent) detailParts.push(`${opponent}'s move`);
   const detail = detailParts.join(' · ');
+  const historyOpen = !(
+    game.status === 'finished' &&
+    (/resign/i.test(game.result || '') || /on time/i.test(game.result || ''))
+  );
+  const showBack = (game.backs ?? 0) > 0 && historyOpen;
+  const showForward = (game.forwards ?? 0) > 0 && historyOpen;
   const liveMs = (color: 'w' | 'b') => {
     void tick;
     if (!game.clock) return 0;
@@ -696,36 +715,61 @@ export function GameScreen({ navigation, route }: Props) {
               {`Game ${gameTime}`}
             </Text>
           )}
+          {(showBack || showForward) && (
+            <View style={styles.stepRow}>
+              {showBack && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Back, ${game.backs} left`}
+                  onPress={takeBack}
+                  style={({ pressed }) => [
+                    styles.backBtn,
+                    {
+                      backgroundColor: theme.colors.surface,
+                      borderColor: theme.colors.accent,
+                      opacity: pressed ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: theme.colors.text,
+                      fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                      fontSize: 15,
+                    }}
+                  >
+                    Back
+                  </Text>
+                </Pressable>
+              )}
+              {showForward && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Forward, ${game.forwards} left`}
+                  onPress={takeForward}
+                  style={({ pressed }) => [
+                    styles.backBtn,
+                    {
+                      backgroundColor: theme.colors.surface,
+                      borderColor: theme.colors.accent,
+                      opacity: pressed ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: theme.colors.text,
+                      fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                      fontSize: 15,
+                    }}
+                  >
+                    Forward
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          )}
         </View>
-        {(game.backs ?? 0) > 0 &&
-          !(
-            game.status === 'finished' &&
-            (/resign/i.test(game.result || '') || /on time/i.test(game.result || ''))
-          ) && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Back, ${game.backs} left`}
-            onPress={takeBack}
-            style={({ pressed }) => [
-              styles.backBtn,
-              {
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.accent,
-                opacity: pressed ? 0.7 : 1,
-              },
-            ]}
-          >
-            <Text
-              style={{
-                color: theme.colors.text,
-                fontFamily: fontFamilyFor(theme, 'body', 'bold'),
-                fontSize: 15,
-              }}
-            >
-              Back
-            </Text>
-          </Pressable>
-        )}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={
@@ -1079,6 +1123,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  stepRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
   },
   unread: {
     position: 'absolute',

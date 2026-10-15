@@ -10,7 +10,7 @@ import { Server, type Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
 import { bankRemaining, chargeTurn, clockFromChoice, type GameClock } from './clock';
 import { chargeLog, closeLog, logFor, startLog, viewElapsed, type TimeLog } from './elapsed';
-import { canTakeBack, keepClock, keepLog, rememberPosition, type PositionSnap } from './takeback';
+import { canStepForward, canTakeBack, keepClock, keepLog, rememberPosition, type PositionSnap } from './takeback';
 import { notifyPlayer, parseSubscription, pushPublicKey, saveSubscription } from './push';
 
 /** `npm --prefix server` and Docker set cwd to `server/`. A repo-root cwd still works. */
@@ -61,7 +61,9 @@ export type StoredGame = {
   log?: TimeLog;
   /** Positions before the last few moves. At most four. */
   history?: PositionSnap[];
-  /** The latest change put a move back. */
+  /** Moves Back removed, newest last. At most four. A new move clears this. */
+  redo?: PositionSnap[];
+  /** The latest change stepped through the move list. */
   undone?: boolean;
 };
 
@@ -95,6 +97,10 @@ type ClientToServer = {
     cb: (res: { ok: true; game: PublicGame } | { ok: false; error: string }) => void,
   ) => void;
   takeBack: (
+    payload: { gameId: string; playerId: string },
+    cb: (res: { ok: true; game: PublicGame } | { ok: false; error: string }) => void,
+  ) => void;
+  takeForward: (
     payload: { gameId: string; playerId: string },
     cb: (res: { ok: true; game: PublicGame } | { ok: false; error: string }) => void,
   ) => void;
@@ -154,6 +160,8 @@ export type PublicGame = {
   elapsed?: { gameMs: number; whiteMs: number; blackMs: number };
   /** How many moves can still be taken back. */
   backs?: number;
+  /** How many taken-back moves can be put forward again. */
+  forwards?: number;
   undone?: boolean;
 };
 
@@ -217,6 +225,10 @@ function cloneGame(game: StoredGame): StoredGame {
     clock: game.clock ? { ...game.clock } : undefined,
     log: game.log ? { ...game.log } : undefined,
     history: game.history?.map((entry) => ({
+      ...entry,
+      lastMove: entry.lastMove ? { ...entry.lastMove } : undefined,
+    })),
+    redo: game.redo?.map((entry) => ({
       ...entry,
       lastMove: entry.lastMove ? { ...entry.lastMove } : undefined,
     })),
@@ -376,6 +388,7 @@ function toPublic(game: StoredGame, connectedIds: Set<string>): PublicGame {
       : undefined,
     elapsed: publicElapsed(game, chess.turn(), now),
     backs: game.history?.length ?? 0,
+    forwards: game.redo?.length ?? 0,
     undone: game.undone || undefined,
   };
 }
@@ -737,6 +750,7 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
         const expected = game.updatedAt;
         const next = cloneGame(game);
         next.history = rememberPosition(next.history, snapOf(game));
+        next.redo = undefined;
         next.undone = false;
         next.fen = chess.fen();
         next.pgn = chess.pgn();
@@ -789,6 +803,7 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
         const expected = game.updatedAt;
         const next = cloneGame(game);
         next.history = history.slice(0, -1);
+        next.redo = rememberPosition(game.redo, snapOf(game));
         next.fen = snap.fen;
         next.pgn = snap.pgn;
         next.lastMove = snap.lastMove ? { ...snap.lastMove } : undefined;
@@ -812,6 +827,60 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
     } catch (err) {
       console.error(err);
       cb({ ok: false, error: 'Could not take that back' });
+    }
+  });
+
+  socket.on('takeForward', async (payload, cb) => {
+    try {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const game = await loadGame(payload.gameId);
+        if (!game) {
+          cb({ ok: false, error: 'Game not found' });
+          return;
+        }
+        const color = colorOf(game, payload.playerId);
+        if (!color) {
+          cb({ ok: false, error: 'Not your game' });
+          return;
+        }
+        if (!canStepForward(game)) {
+          cb({ ok: false, error: 'Nothing to put forward' });
+          return;
+        }
+        const redo = game.redo ?? [];
+        const snap = redo[redo.length - 1];
+        const now = Date.now();
+        const turn = new Chess(game.fen).turn();
+        const expected = game.updatedAt;
+        const next = cloneGame(game);
+        const rest = redo.slice(0, -1);
+        next.redo = rest.length ? rest : undefined;
+        next.history = rememberPosition(game.history, snapOf(game));
+        next.fen = snap.fen;
+        next.pgn = snap.pgn;
+        next.lastMove = snap.lastMove ? { ...snap.lastMove } : undefined;
+        next.status = snap.status;
+        next.result = snap.result;
+        next.clock = keepClock(game.clock, turn, game.status, now);
+        let log = keepLog(game.log, turn, game.status, now);
+        if (snap.status === 'finished' && log) log = closeLog(log, now);
+        next.log = log;
+        next.undone = true;
+        next.updatedAt = Math.max(now, expected + 1);
+        if (!(await saveGame(next, expected))) continue;
+        const pub = toPublic(next, connectedPlayersFor(next));
+        emitGame(next);
+        cb({ ok: true, game: pub });
+        const actor = next.players[color]?.name || 'Your partner';
+        void notifySeat(otherPlayerId(next, color), 'Forward', `${actor} played a move forward`, next.code).catch(
+          (err) => console.error(err),
+        );
+        return;
+      }
+      cb({ ok: false, error: 'Could not put that forward' });
+    } catch (err) {
+      console.error(err);
+      cb({ ok: false, error: 'Could not put that forward' });
     }
   });
 
@@ -882,6 +951,7 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
       const next = cloneGame(game);
       next.status = 'finished';
       next.result = color === 'w' ? 'Black wins — white resigned' : 'White wins — black resigned';
+      next.redo = undefined;
       next.log = closeLog(chargeLog(logFor(game.log, game, now), turn, now), now);
       next.updatedAt = Math.max(now, expected + 1);
       if (!(await saveGame(next, expected))) continue;

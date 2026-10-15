@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import type { GameClock } from '../server/src/clock.ts';
 import type { TimeLog } from '../server/src/elapsed.ts';
-import { canTakeBack, keepClock, keepLog, rememberPosition, type PositionSnap } from '../server/src/takeback.ts';
+import { canStepForward, canTakeBack, keepClock, keepLog, rememberPosition, type PositionSnap } from '../server/src/takeback.ts';
 
 function snap(fen: string): PositionSnap {
   return { fen, pgn: '', status: 'active' };
@@ -19,6 +19,16 @@ assert.equal(canTakeBack({ status: 'active', history: [] }), false);
 assert.equal(canTakeBack({ status: 'finished', result: 'White wins — black resigned', history }), false);
 assert.equal(canTakeBack({ status: 'finished', result: 'Black wins on time', history }), false);
 assert.equal(canTakeBack({ status: 'finished', result: 'White wins by checkmate', history }), true);
+
+const redo = rememberPosition(undefined, snap('e4'));
+assert.equal(canStepForward({ status: 'active', redo }), true);
+assert.equal(canStepForward({ status: 'active', redo: [] }), false);
+assert.equal(canStepForward({ status: 'finished', result: 'White wins — black resigned', redo }), false);
+assert.equal(canStepForward({ status: 'finished', result: 'Black wins on time', redo }), false);
+assert.equal(canStepForward({ status: 'finished', result: 'White wins by checkmate', redo }), true);
+let capped = redo;
+for (const fen of ['a', 'b', 'c', 'd']) capped = rememberPosition(capped, snap(fen));
+assert.deepEqual(capped.map((entry) => entry.fen), ['a', 'b', 'c', 'd']);
 
 const clock: GameClock = { initialMs: 600_000, whiteMs: 590_000, blackMs: 600_000, turnStartedAt: 1_000 };
 const kept = keepClock(clock, 'b', 'active', 9_000);

@@ -35,6 +35,9 @@ if (!timed.ok) throw new Error(timed.error);
 const whiteLeft = timed.game.clock.whiteMs;
 const whiteUsed = timed.game.elapsed.whiteMs;
 if (whiteLeft > 10 * 60 * 1000 - 900) throw new Error(`white clock did not run ${whiteLeft}`);
+if ((timed.game.forwards ?? 0) !== 0) throw new Error('a new move left a redo line');
+const beforeUndo = await emit(white, 'takeForward', { gameId: created.game.id, playerId: created.playerId });
+if (beforeUndo.ok) throw new Error('forward before any take back');
 await new Promise((r) => setTimeout(r, 900));
 const undone = await emit(white, 'takeBack', { gameId: created.game.id, playerId: created.playerId });
 if (!undone.ok) throw new Error(undone.error);
@@ -49,6 +52,26 @@ if (undone.game.elapsed.gameMs < 1800) throw new Error(`game clock stopped ${und
 if (undone.game.clock.blackMs > 10 * 60 * 1000 - 500) {
   throw new Error(`black clock paused on take back ${undone.game.clock.blackMs}`);
 }
+if (undone.game.forwards !== 1) throw new Error(`expected 1 forward, got ${undone.game.forwards}`);
+const stranger = await emit(white, 'takeForward', { gameId: created.game.id, playerId: 'nope' });
+if (stranger.ok) throw new Error('a stranger stepped the game forward');
+const replayed = await emit(black, 'takeForward', { gameId: created.game.id, playerId: joined.playerId });
+if (!replayed.ok) throw new Error(replayed.error);
+if (replayed.game.fen !== timed.game.fen) throw new Error('forward did not restore the move');
+if (replayed.game.turn !== 'b') throw new Error(`forward left turn ${replayed.game.turn}`);
+if (replayed.game.forwards !== 0) throw new Error(`forward left ${replayed.game.forwards} on the redo line`);
+if ((replayed.game.backs ?? 0) < 1) throw new Error('forward did not restore back');
+if (replayed.game.clock.whiteMs > undone.game.clock.whiteMs + 400) {
+  throw new Error(`forward refunded white ${undone.game.clock.whiteMs} -> ${replayed.game.clock.whiteMs}`);
+}
+if (replayed.game.elapsed.whiteMs + 200 < undone.game.elapsed.whiteMs) {
+  throw new Error(`forward erased white time ${undone.game.elapsed.whiteMs} -> ${replayed.game.elapsed.whiteMs}`);
+}
+const emptyForward = await emit(white, 'takeForward', { gameId: created.game.id, playerId: created.playerId });
+if (emptyForward.ok) throw new Error('a fifth forward was allowed');
+const backToStart = await emit(white, 'takeBack', { gameId: created.game.id, playerId: created.playerId });
+if (!backToStart.ok) throw new Error(backToStart.error);
+if (backToStart.game.turn !== 'w') throw new Error('second take back did not return the turn');
 
 const moves = [
   ['w', 'e2', 'e4'],
@@ -73,6 +96,7 @@ for (const [side, from, to] of moves) {
 if (moves.length !== 5) throw new Error('expected 5 moves');
 const played = await emit(white, 'rejoinGame', { gameId: created.game.id, playerId: created.playerId });
 if (played.game.backs !== 4) throw new Error(`expected 4 backs, got ${played.game.backs}`);
+if ((played.game.forwards ?? 0) !== 0) throw new Error('new moves did not clear the redo line');
 
 let current = played.game.fen;
 for (let i = 4; i >= 1; i--) {
@@ -85,6 +109,21 @@ for (let i = 4; i >= 1; i--) {
 if (current !== afterFirst) throw new Error('four backs did not return to the first move');
 const fifth = await emit(white, 'takeBack', { gameId: created.game.id, playerId: created.playerId });
 if (fifth.ok) throw new Error('a fifth back was allowed');
+let stepped = current;
+for (let i = 4; i >= 1; i--) {
+  const fwd = await emit(white, 'takeForward', { gameId: created.game.id, playerId: created.playerId });
+  if (!fwd.ok) throw new Error(fwd.error);
+  if (fwd.game.fen === stepped) throw new Error('forward left the board in place');
+  if (fwd.game.forwards !== i - 1) throw new Error(`forwards ${fwd.game.forwards} after replaying to ${i - 1}`);
+  stepped = fwd.game.fen;
+}
+if (stepped !== played.game.fen) throw new Error('four forwards did not restore the line');
+const extra = await emit(black, 'takeForward', { gameId: created.game.id, playerId: joined.playerId });
+if (extra.ok) throw new Error('forward with an empty redo line');
+for (let i = 0; i < 4; i++) {
+  const back = await emit(black, 'takeBack', { gameId: created.game.id, playerId: joined.playerId });
+  if (!back.ok) throw new Error(back.error);
+}
 
 const again = await emit(black, 'makeMove', {
   gameId: created.game.id,
@@ -94,6 +133,7 @@ const again = await emit(black, 'makeMove', {
 });
 if (!again.ok) throw new Error(again.error);
 if (again.game.backs !== 1) throw new Error(`new move should allow one back, got ${again.game.backs}`);
+if ((again.game.forwards ?? 0) !== 0) throw new Error('a new move kept the redo line');
 
 white.close();
 black.close();
