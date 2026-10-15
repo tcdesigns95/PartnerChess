@@ -616,7 +616,7 @@ export function GameScreen({ navigation, route }: Props) {
             accessibilityRole="button"
             accessibilityLabel="Your games"
             onPress={backToGames}
-            hitSlop={8}
+            hitSlop={12}
             style={({ pressed }) => [{ alignSelf: 'flex-start', opacity: pressed ? 0.7 : 1 }]}
           >
             <Text
