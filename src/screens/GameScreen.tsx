@@ -26,13 +26,13 @@ import { getSocket, buildInviteLink, resumeLiveSocket } from '../lib/socket';
 import { enableMoveAlerts, resumeMoveAlerts } from '../lib/alerts';
 import { shouldApplySnapshot, type PendingMove } from '../lib/applySnapshot';
 import { formatClock, formatElapsed } from '../lib/clock';
-import { clearSession, loadSession, saveSession } from '../lib/session';
+import { forgetSeat, loadSession, parkHome, saveSession } from '../lib/session';
 import { useKeyboardInset } from '../lib/useKeyboardInset';
 import type { ChatMessage, PublicGame, RootStackParamList, Session } from '../lib/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
 
-export function GameScreen({ navigation }: Props) {
+export function GameScreen({ navigation, route }: Props) {
   const { theme } = useTheme();
   const [session, setSession] = useState<Session | null>(null);
   const [game, setGame] = useState<PublicGame | null>(null);
@@ -52,7 +52,8 @@ export function GameScreen({ navigation }: Props) {
   const sessionRef = useRef<Session | null>(null);
   const chatOpenRef = useRef(false);
   const revisionRef = useRef(0);
-  const pendingMoveRef = useRef<(PendingMove & { token: number; tries: number; from: string; to: string; promotion?: string }) | null>(null);
+  const shownFenRef = useRef('');
+  const pendingMoveRef = useRef<(PendingMove & { token: number; tries: number; from: string; to: string; promotion?: string; rejected?: boolean }) | null>(null);
   const moveToken = useRef(0);
   const clockSeen = useRef({ at: 0, whiteMs: 0, blackMs: 0, turn: 'w' as 'w' | 'b', active: false, key: '' });
   const elapsedSeen = useRef({
@@ -96,6 +97,9 @@ export function GameScreen({ navigation }: Props) {
   const chatHydrated = useRef(false);
   const seenChatIds = useRef(new Set<string>());
   const hasGameRef = useRef(false);
+  const loadedGameId = useRef<string | null>(null);
+  const alive = useRef(true);
+  const leaving = useRef(false);
   const rejoinTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { width: winW, height: winH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -114,6 +118,7 @@ export function GameScreen({ navigation }: Props) {
   }, []);
 
   const applyGame = useCallback((g: PublicGame) => {
+    if (sessionRef.current && g.id !== sessionRef.current.gameId) return;
     const rev = g.updatedAt ?? 0;
     const pending = pendingMoveRef.current;
     const apply = shouldApplySnapshot({
@@ -121,6 +126,7 @@ export function GameScreen({ navigation }: Props) {
       fen: g.fen,
       status: g.status,
       heldRevision: revisionRef.current,
+      heldFen: shownFenRef.current || undefined,
       pending,
       undo: g.undone,
     });
@@ -135,6 +141,7 @@ export function GameScreen({ navigation }: Props) {
     if (!apply) return;
     pendingMoveRef.current = null;
     revisionRef.current = Math.max(revisionRef.current, rev);
+    shownFenRef.current = g.fen;
     hasGameRef.current = true;
     setGame(g);
   }, [absorbChat]);
@@ -142,11 +149,14 @@ export function GameScreen({ navigation }: Props) {
   const rejoin = useCallback((force = false) => {
     const s = sessionRef.current;
     if (!s) return;
+    const gameId = s.gameId;
     if (force && !pendingMoveRef.current) resumeLiveSocket();
     const socket = getSocket();
     const emit = () => {
+      if (sessionRef.current?.gameId !== gameId) return;
       if (rejoinTimer.current) clearTimeout(rejoinTimer.current);
       rejoinTimer.current = setTimeout(() => {
+        if (!alive.current || leaving.current || sessionRef.current?.gameId !== gameId) return;
         if (!hasGameRef.current) setError((current) => current || 'Could not reopen your game');
       }, 8000);
       socket.emit(
@@ -154,6 +164,7 @@ export function GameScreen({ navigation }: Props) {
         { gameId: s.gameId, playerId: s.playerId },
         (res) => {
           if (rejoinTimer.current) clearTimeout(rejoinTimer.current);
+          if (!alive.current || leaving.current || sessionRef.current?.gameId !== gameId) return;
           if (!res.ok) {
             setError(res.error);
             return;
@@ -164,6 +175,14 @@ export function GameScreen({ navigation }: Props) {
           const next = { ...s, color, name, code: res.game.code };
           sessionRef.current = next;
           setSession(next);
+          const pendingNow = pendingMoveRef.current;
+          if (
+            pendingNow?.rejected &&
+            res.game.fen === pendingNow.baseFen &&
+            (res.game.updatedAt ?? 0) >= pendingNow.baseRev
+          ) {
+            pendingNow.giveUp = true;
+          }
           applyGame(res.game);
           void saveSession(next);
         },
@@ -179,7 +198,8 @@ export function GameScreen({ navigation }: Props) {
   useEffect(() => {
     const socket = getSocket();
     const onGame = (g: PublicGame) => applyGame(g);
-    const onChat = (msg: ChatMessage) => {
+    const onChat = (msg: ChatMessage & { gameId?: string }) => {
+      if (msg.gameId && sessionRef.current && msg.gameId !== sessionRef.current.gameId) return;
       absorbChat([msg], true);
       setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
     };
@@ -194,23 +214,63 @@ export function GameScreen({ navigation }: Props) {
     };
   }, [absorbChat, applyGame, rejoin]);
 
+  const resetBoard = () => {
+    pendingMoveRef.current = null;
+    revisionRef.current = 0;
+    shownFenRef.current = '';
+    chatHydrated.current = false;
+    seenChatIds.current = new Set();
+    hasGameRef.current = false;
+    sharePrompted.current = false;
+    askedFlag.current = false;
+    clockSeen.current = { at: 0, whiteMs: 0, blackMs: 0, turn: 'w', active: false, key: '' };
+    elapsedSeen.current = { at: 0, gameMs: 0, whiteMs: 0, blackMs: 0, turn: 'w', active: false, key: '' };
+    setGame(null);
+    setMessages([]);
+    setError('');
+    setPromo(null);
+    setUnread(0);
+    setChatPreview(null);
+    setChatOpen(false);
+    chatOpenRef.current = false;
+    setMenuOpen(false);
+    setCopied(false);
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      leaving.current = false;
+      alive.current = true;
+      let cancelled = false;
+      void (async () => {
+        const s = await loadSession();
+        if (cancelled || leaving.current) return;
+        const wanted = route.params?.gameId;
+        if (!s || (wanted && s.gameId !== wanted)) {
+          setError('No match');
+          sessionRef.current = null;
+          setSession(null);
+          return;
+        }
+        const switching = loadedGameId.current !== null && loadedGameId.current !== s.gameId;
+        if (switching) resetBoard();
+        loadedGameId.current = s.gameId;
+        sessionRef.current = s;
+        setSession(s);
+        rejoin(switching);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [rejoin, route.params?.gameId]),
+  );
+
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const s = await loadSession();
-      if (cancelled) return;
-      if (!s) {
-        setError('No match');
-        return;
-      }
-      sessionRef.current = s;
-      setSession(s);
-      rejoin();
-    })();
+    alive.current = true;
     return () => {
-      cancelled = true;
+      alive.current = false;
     };
-  }, [rejoin]);
+  }, []);
 
   useEffect(() => {
     if (!session || Platform.OS !== 'web') return;
@@ -235,18 +295,14 @@ export function GameScreen({ navigation }: Props) {
     rejoin(false);
   }, [tick, game, rejoin]);
 
-  useFocusEffect(
-    useCallback(() => {
-      rejoin();
-    }, [rejoin]),
-  );
-
   useEffect(() => {
     const wake = () => {
       if (Platform.OS === 'web' && typeof document !== 'undefined' && document.visibilityState === 'hidden') {
         return;
       }
-      rejoin(true);
+      const live = getSocket();
+      if (!live.connected) rejoin(true);
+      else rejoin(false);
     };
     const onChange = (state: AppStateStatus) => {
       if (state === 'active') wake();
@@ -284,6 +340,7 @@ export function GameScreen({ navigation }: Props) {
 
   const onMove = (from: string, to: string, promotion?: string) => {
     if (!session || !game) return;
+    if (pendingMoveRef.current) return;
     const baseFen = game.fen;
     let optimisticFen = baseFen;
     try {
@@ -293,6 +350,7 @@ export function GameScreen({ navigation }: Props) {
       const local = draft.move(opts as Parameters<Chess['move']>[0]);
       if (local) {
         optimisticFen = draft.fen();
+        shownFenRef.current = optimisticFen;
         hasGameRef.current = true;
         setGame({
           ...game,
@@ -321,23 +379,23 @@ export function GameScreen({ navigation }: Props) {
       promotion,
       tries: 0,
       giveUp: false,
+      rejected: false,
     };
     pendingMoveRef.current = pending;
 
     const emitMove = () => {
       const seat = sessionRef.current;
-      if (!seat || pendingMoveRef.current?.token !== token) return;
+      if (!seat || moveToken.current !== token) return;
       let settled = false;
       const timer = setTimeout(() => {
-        if (settled || pendingMoveRef.current?.token !== token) return;
+        if (settled || moveToken.current !== token) return;
         if (pending.tries >= 1) {
-          pending.giveUp = true;
           rejoin(false);
           return;
         }
         pending.tries += 1;
         emitMove();
-      }, 4500);
+      }, 2500);
 
       const socket = getSocket();
       if (!socket.connected) socket.connect();
@@ -349,15 +407,19 @@ export function GameScreen({ navigation }: Props) {
           from,
           to,
           promotion,
+          updatedAt: pending.baseRev || undefined,
         },
         (res) => {
           settled = true;
           clearTimeout(timer);
-          if (pendingMoveRef.current?.token !== token) return;
+          if (moveToken.current !== token) return;
           if (!res.ok) {
-            pending.giveUp = true;
-            if (res.error !== 'Not your turn' && res.error !== 'Move did not save, try again') {
+            const soft = res.error === 'Not your turn' || res.error === 'Move did not save, try again';
+            if (!soft) {
+              pending.giveUp = true;
               setError(res.error);
+            } else {
+              pending.rejected = true;
             }
             rejoin(false);
             return;
@@ -405,6 +467,19 @@ export function GameScreen({ navigation }: Props) {
     });
   };
 
+  const takeForward = () => {
+    const seat = sessionRef.current;
+    if (!seat || pendingMoveRef.current) return;
+    getSocket().emit('takeForward', { gameId: seat.gameId, playerId: seat.playerId }, (res) => {
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setError('');
+      applyGame(res.game);
+    });
+  };
+
   const resign = () => {
     if (!session) return;
     const go = () =>
@@ -423,9 +498,18 @@ export function GameScreen({ navigation }: Props) {
     }
   };
 
-  const leave = async () => {
-    await clearSession();
+  const backToGames = () => {
+    leaving.current = true;
+    parkHome();
+    navigation.popToTop();
+  };
+
+  const removeFromPhone = async () => {
+    leaving.current = true;
+    const id = sessionRef.current?.gameId;
+    if (id) await forgetSeat(id);
     sessionRef.current = null;
+    parkHome();
     navigation.popToTop();
   };
 
@@ -435,9 +519,9 @@ export function GameScreen({ navigation }: Props) {
         <Text style={{ color: theme.colors.danger, fontFamily: fontFamilyFor(theme, 'body') }}>
           {error}
         </Text>
-        <Pressable onPress={() => navigation.popToTop()} style={{ marginTop: 16 }}>
+        <Pressable onPress={backToGames} style={{ marginTop: 16 }}>
           <Text style={{ color: theme.colors.text, fontFamily: fontFamilyFor(theme, 'body', 'bold') }}>
-            Home
+            Your games
           </Text>
         </Pressable>
       </SafeAreaView>
@@ -468,6 +552,11 @@ export function GameScreen({ navigation }: Props) {
             >
               <Text style={{ color: theme.colors.text, fontFamily: fontFamilyFor(theme, 'body', 'bold') }}>
                 Back to the game
+              </Text>
+            </Pressable>
+            <Pressable onPress={backToGames} style={{ marginTop: 16 }}>
+              <Text style={{ color: theme.colors.text, fontFamily: fontFamilyFor(theme, 'body', 'bold') }}>
+                Your games
               </Text>
             </Pressable>
           </>
@@ -506,6 +595,12 @@ export function GameScreen({ navigation }: Props) {
   if (!mate && myTurn) detailParts.push('your move');
   else if (!mate && game.status === 'active' && opponent) detailParts.push(`${opponent}'s move`);
   const detail = detailParts.join(' · ');
+  const historyOpen = !(
+    game.status === 'finished' &&
+    (/resign/i.test(game.result || '') || /on time/i.test(game.result || ''))
+  );
+  const showBack = (game.backs ?? 0) > 0 && historyOpen;
+  const showForward = (game.forwards ?? 0) > 0 && historyOpen;
   const liveMs = (color: 'w' | 'b') => {
     void tick;
     if (!game.clock) return 0;
@@ -556,6 +651,23 @@ export function GameScreen({ navigation }: Props) {
     >
       <View style={styles.topBar}>
         <View style={{ flex: 1, minWidth: 0 }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Your games"
+            onPress={backToGames}
+            hitSlop={12}
+            style={({ pressed }) => [{ alignSelf: 'flex-start', opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Text
+              style={{
+                color: theme.colors.accent,
+                fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                fontSize: 13,
+              }}
+            >
+              Games
+            </Text>
+          </Pressable>
           <Text
             numberOfLines={1}
             style={{
@@ -603,36 +715,61 @@ export function GameScreen({ navigation }: Props) {
               {`Game ${gameTime}`}
             </Text>
           )}
+          {(showBack || showForward) && (
+            <View style={styles.stepRow}>
+              {showBack && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Back, ${game.backs} left`}
+                  onPress={takeBack}
+                  style={({ pressed }) => [
+                    styles.backBtn,
+                    {
+                      backgroundColor: theme.colors.surface,
+                      borderColor: theme.colors.accent,
+                      opacity: pressed ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: theme.colors.text,
+                      fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                      fontSize: 15,
+                    }}
+                  >
+                    Back
+                  </Text>
+                </Pressable>
+              )}
+              {showForward && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Forward, ${game.forwards} left`}
+                  onPress={takeForward}
+                  style={({ pressed }) => [
+                    styles.backBtn,
+                    {
+                      backgroundColor: theme.colors.surface,
+                      borderColor: theme.colors.accent,
+                      opacity: pressed ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: theme.colors.text,
+                      fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                      fontSize: 15,
+                    }}
+                  >
+                    Forward
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          )}
         </View>
-        {(game.backs ?? 0) > 0 &&
-          !(
-            game.status === 'finished' &&
-            (/resign/i.test(game.result || '') || /on time/i.test(game.result || ''))
-          ) && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Back, ${game.backs} left`}
-            onPress={takeBack}
-            style={({ pressed }) => [
-              styles.backBtn,
-              {
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.accent,
-                opacity: pressed ? 0.7 : 1,
-              },
-            ]}
-          >
-            <Text
-              style={{
-                color: theme.colors.text,
-                fontFamily: fontFamilyFor(theme, 'body', 'bold'),
-                fontSize: 15,
-              }}
-            >
-              Back
-            </Text>
-          </Pressable>
-        )}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={
@@ -928,6 +1065,7 @@ export function GameScreen({ navigation }: Props) {
         code={game.code}
         subtitle={game.status === 'waiting' ? 'Share this code' : undefined}
         items={[
+          { label: 'Your games', onPress: backToGames },
           { label: copied ? 'Invite copied' : 'Copy invite link', onPress: () => void copyInvite() },
           { label: 'Themes', onPress: () => navigation.navigate('Themes') },
           {
@@ -952,7 +1090,7 @@ export function GameScreen({ navigation }: Props) {
               ]
             : []),
           { label: 'Resign', onPress: resign, danger: true },
-          { label: 'End & leave', onPress: () => void leave(), danger: true },
+          { label: 'Remove from phone', onPress: () => void removeFromPhone(), danger: true },
         ]}
       />
     </SafeAreaView>
@@ -985,6 +1123,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  stepRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
   },
   unread: {
     position: 'absolute',

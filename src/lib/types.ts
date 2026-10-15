@@ -33,6 +33,8 @@ export type PublicGame = {
   elapsed?: { gameMs: number; whiteMs: number; blackMs: number };
   /** How many moves can still be taken back, up to four. */
   backs?: number;
+  /** How many taken-back moves can be played forward again, up to four. */
+  forwards?: number;
   undone?: boolean;
 };
 
@@ -44,9 +46,22 @@ export type Session = {
   name: string;
 };
 
+/** A row on the home list. Player ids stay on this phone. */
+export type GameSummary = {
+  id: string;
+  code: string;
+  status: 'waiting' | 'active' | 'finished';
+  turn: PlayerColor;
+  yourColor: PlayerColor;
+  you: string;
+  opponent?: string;
+  result?: string;
+  updatedAt: number;
+};
+
 export type RootStackParamList = {
   Home: undefined;
   Join: { code?: string } | undefined;
-  Game: { resume?: boolean } | undefined;
+  Game: { resume?: boolean; gameId?: string } | undefined;
   Themes: undefined;
 };

@@ -19,11 +19,17 @@ export function shouldApplySnapshot(input: {
   status: string;
   heldRevision: number;
   pending: PendingMove | null;
+  /** Position currently on the board. The same revision must not swap it. */
+  heldFen?: string;
   /** A newer snapshot that puts a move back on purpose. */
   undo?: boolean;
 }): boolean {
-  const { rev, fen, status, heldRevision, pending, undo } = input;
-  if (!pending) return rev >= heldRevision;
+  const { rev, fen, status, heldRevision, pending, heldFen, undo } = input;
+  if (!pending) {
+    if (rev > heldRevision) return true;
+    if (rev < heldRevision) return false;
+    return heldFen == null || fen === heldFen;
+  }
   if (undo && rev > pending.baseRev) return true;
   if (fen === pending.fen) return true;
   if (fen === pending.baseFen) {

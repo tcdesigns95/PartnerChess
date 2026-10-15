@@ -20,6 +20,16 @@ export function rememberPosition(history: PositionSnap[] | undefined, snap: Posi
 
 export function canTakeBack(game: { status: string; result?: string; history?: unknown[] }): boolean {
   if (!game.history?.length) return false;
+  return canStepHistory(game);
+}
+
+/** Forward puts back a move that Back removed. The redo line holds at most four. */
+export function canStepForward(game: { status: string; result?: string; redo?: unknown[] }): boolean {
+  if (!game.redo?.length) return false;
+  return canStepHistory(game);
+}
+
+function canStepHistory(game: { status: string; result?: string }): boolean {
   if (game.status === 'waiting') return false;
   const result = (game.result || '').toLowerCase();
   if (game.status === 'finished' && (result.includes('resign') || result.includes('on time'))) return false;
