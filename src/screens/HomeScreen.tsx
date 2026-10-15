@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -16,11 +16,12 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { ChessPiece } from '../components/ChessPiece';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
+import { resumeMoveAlerts } from '../lib/alerts';
 import { CLOCK_PRESETS, type ClockPresetId } from '../lib/clock';
 import { clearInviteCodeFromUrl, getSocket } from '../lib/socket';
-import { loadDisplayName, loadSession, saveDisplayName, saveSession } from '../lib/session';
+import { forgetSeat, loadDisplayName, loadRoster, loadSeatFromUrl, saveDisplayName, saveSession } from '../lib/session';
 import { useKeyboardInset } from '../lib/useKeyboardInset';
-import type { RootStackParamList } from '../lib/types';
+import type { GameSummary, RootStackParamList, Session } from '../lib/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
@@ -33,6 +34,9 @@ export function HomeScreen({ navigation }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [connected, setConnected] = useState(false);
+  const [roster, setRoster] = useState<Session[]>([]);
+  const [summaries, setSummaries] = useState<GameSummary[]>([]);
+  const [known, setKnown] = useState(false);
 
   const short = height < 700;
   const narrow = width < 380;
@@ -43,28 +47,57 @@ export function HomeScreen({ navigation }: Props) {
     void setThemeId('cyber');
   }, [fontsReady, setThemeId]);
 
+  const refreshGames = useCallback(() => {
+    const socket = getSocket();
+    const run = async () => {
+      const seats = await loadRoster();
+      setRoster(seats);
+      if (seats.length === 0) {
+        setSummaries([]);
+        setKnown(true);
+        return;
+      }
+      socket.emit(
+        'myGames',
+        { seats: seats.map((seat) => ({ gameId: seat.gameId, playerId: seat.playerId })) },
+        (res) => {
+          if (!res.ok) return;
+          setSummaries(res.games);
+          setKnown(true);
+        },
+      );
+      void resumeMoveAlerts();
+    };
+    if (socket.connected) void run();
+    else socket.once('connect', () => void run());
+  }, []);
+
   useEffect(() => {
     void (async () => {
       setName(await loadDisplayName());
-      const existing = await loadSession();
-
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
         const params = new URLSearchParams(window.location.search);
         const code = params.get('code')?.trim().toUpperCase();
         if (code) {
-          if (existing && existing.code.toUpperCase() === code) {
+          const seats = await loadRoster();
+          const match = seats.find((seat) => seat.code.toUpperCase() === code);
+          if (match) {
+            await saveSession(match);
             clearInviteCodeFromUrl();
-            navigation.navigate('Game', { resume: true });
+            navigation.navigate('Game', { gameId: match.gameId, resume: true });
             return;
           }
           navigation.navigate('Join', { code });
           return;
         }
+        const fromUrl = loadSeatFromUrl();
+        if (fromUrl) {
+          await saveSession(fromUrl);
+          navigation.navigate('Game', { gameId: fromUrl.gameId, resume: true });
+          return;
+        }
       }
-
-      if (existing) {
-        navigation.navigate('Game', { resume: true });
-      }
+      refreshGames();
     })();
     const socket = getSocket();
     const onConnect = () => setConnected(true);
@@ -76,23 +109,14 @@ export function HomeScreen({ navigation }: Props) {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
     };
-  }, [navigation]);
+  }, [navigation, refreshGames]);
 
   useEffect(() => {
     const unsub = navigation.addListener('focus', () => {
-      void (async () => {
-        const existing = await loadSession();
-        if (!existing) return;
-        if (Platform.OS === 'web' && typeof window !== 'undefined') {
-          const code = new URLSearchParams(window.location.search).get('code')?.trim().toUpperCase();
-          if (code && existing.code.toUpperCase() !== code) return;
-          if (code) clearInviteCodeFromUrl();
-        }
-        navigation.navigate('Game', { resume: true });
-      })();
+      refreshGames();
     });
     return unsub;
-  }, [navigation]);
+  }, [navigation, refreshGames]);
 
   const createGame = () => {
     const trimmed = name.trim() || 'You';
@@ -113,9 +137,30 @@ export function HomeScreen({ navigation }: Props) {
         code: res.game.code,
         name: trimmed,
       });
-      navigation.navigate('Game');
+      navigation.navigate('Game', { gameId: res.game.id });
     });
   };
+
+  const openSeat = (seat: Session) => {
+    void (async () => {
+      await saveSession(seat);
+      navigation.navigate('Game', { gameId: seat.gameId });
+    })();
+  };
+
+  const hideSeat = (gameId: string) => {
+    void forgetSeat(gameId).then(() => refreshGames());
+  };
+
+  const byId = new Map(summaries.map((game) => [game.id, game]));
+  const rows = roster
+    .map((seat) => ({ seat, summary: byId.get(seat.gameId) }))
+    .sort((a, b) => {
+      const rank = (status?: GameSummary['status']) => (status === 'finished' ? 1 : status ? 0 : 2);
+      const diff = rank(a.summary?.status) - rank(b.summary?.status);
+      if (diff !== 0) return diff;
+      return (b.summary?.updatedAt ?? 0) - (a.summary?.updatedAt ?? 0);
+    });
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]}>
@@ -166,6 +211,98 @@ export function HomeScreen({ navigation }: Props) {
           </View>
 
           <View style={styles.form}>
+            {rows.length > 0 && (
+              <View style={styles.games}>
+                <Text
+                  style={{
+                    color: theme.colors.text,
+                    fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                    fontSize: 15,
+                    letterSpacing: 0.4,
+                  }}
+                >
+                  Your games
+                </Text>
+                {rows.map(({ seat, summary }) => {
+                  const missing = known && !summary;
+                  const title = summary?.opponent
+                    || (summary?.status === 'waiting' ? 'Open seat' : missing ? 'Unavailable' : 'Opening…');
+                  const line = !summary
+                    ? `${seat.code} · ${missing ? 'Unavailable' : 'Opening…'}`
+                    : summary.status === 'waiting'
+                      ? `${summary.code} · Waiting for partner`
+                      : summary.status === 'finished'
+                        ? `${summary.code} · ${summary.result || 'Finished'}`
+                        : summary.turn === summary.yourColor
+                          ? `${summary.code} · Your move`
+                          : `${summary.code} · ${summary.opponent || 'Partner'}'s move`;
+                  const canHide = missing || summary?.status === 'finished';
+                  return (
+                    <View
+                      key={seat.gameId}
+                      style={[
+                        styles.gameRow,
+                        {
+                          borderColor: theme.colors.border,
+                          backgroundColor: theme.colors.surface,
+                        },
+                      ]}
+                    >
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`${title}. ${line}`}
+                        onPress={() => {
+                          if (summary) openSeat(seat);
+                        }}
+                        style={({ pressed }) => [{ flex: 1, minWidth: 0, opacity: pressed && summary ? 0.8 : 1 }]}
+                      >
+                        <Text
+                          numberOfLines={1}
+                          style={{
+                            color: theme.colors.text,
+                            fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                            fontSize: 16,
+                          }}
+                        >
+                          {title}
+                        </Text>
+                        <Text
+                          numberOfLines={2}
+                          style={{
+                            color: theme.colors.textMuted,
+                            fontFamily: fontFamilyFor(theme, 'body'),
+                            fontSize: 13,
+                            marginTop: 2,
+                          }}
+                        >
+                          {line}
+                        </Text>
+                      </Pressable>
+                      {canHide && (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Hide ${seat.code}`}
+                          onPress={() => hideSeat(seat.gameId)}
+                          hitSlop={8}
+                          style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1, paddingLeft: 10, justifyContent: 'center' }]}
+                        >
+                          <Text
+                            style={{
+                              color: theme.colors.textMuted,
+                              fontFamily: fontFamilyFor(theme, 'body', 'bold'),
+                              fontSize: 13,
+                            }}
+                          >
+                            Hide
+                          </Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
             <TextInput
               value={name}
               onChangeText={setName}
@@ -359,5 +496,18 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  games: {
+    gap: 8,
+    marginTop: 8,
+  },
+  gameRow: {
+    borderWidth: 1,
+    borderRadius: 14,
+    minHeight: 64,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 });

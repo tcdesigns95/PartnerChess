@@ -26,13 +26,13 @@ import { getSocket, buildInviteLink, resumeLiveSocket } from '../lib/socket';
 import { enableMoveAlerts, resumeMoveAlerts } from '../lib/alerts';
 import { shouldApplySnapshot, type PendingMove } from '../lib/applySnapshot';
 import { formatClock, formatElapsed } from '../lib/clock';
-import { clearSession, loadSession, saveSession } from '../lib/session';
+import { forgetSeat, loadSession, parkHome, saveSession } from '../lib/session';
 import { useKeyboardInset } from '../lib/useKeyboardInset';
 import type { ChatMessage, PublicGame, RootStackParamList, Session } from '../lib/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
 
-export function GameScreen({ navigation }: Props) {
+export function GameScreen({ navigation, route }: Props) {
   const { theme } = useTheme();
   const [session, setSession] = useState<Session | null>(null);
   const [game, setGame] = useState<PublicGame | null>(null);
@@ -96,6 +96,9 @@ export function GameScreen({ navigation }: Props) {
   const chatHydrated = useRef(false);
   const seenChatIds = useRef(new Set<string>());
   const hasGameRef = useRef(false);
+  const loadedGameId = useRef<string | null>(null);
+  const alive = useRef(true);
+  const leaving = useRef(false);
   const rejoinTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { width: winW, height: winH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -114,6 +117,7 @@ export function GameScreen({ navigation }: Props) {
   }, []);
 
   const applyGame = useCallback((g: PublicGame) => {
+    if (sessionRef.current && g.id !== sessionRef.current.gameId) return;
     const rev = g.updatedAt ?? 0;
     const pending = pendingMoveRef.current;
     const apply = shouldApplySnapshot({
@@ -142,11 +146,14 @@ export function GameScreen({ navigation }: Props) {
   const rejoin = useCallback((force = false) => {
     const s = sessionRef.current;
     if (!s) return;
+    const gameId = s.gameId;
     if (force && !pendingMoveRef.current) resumeLiveSocket();
     const socket = getSocket();
     const emit = () => {
+      if (sessionRef.current?.gameId !== gameId) return;
       if (rejoinTimer.current) clearTimeout(rejoinTimer.current);
       rejoinTimer.current = setTimeout(() => {
+        if (!alive.current || leaving.current || sessionRef.current?.gameId !== gameId) return;
         if (!hasGameRef.current) setError((current) => current || 'Could not reopen your game');
       }, 8000);
       socket.emit(
@@ -154,6 +161,7 @@ export function GameScreen({ navigation }: Props) {
         { gameId: s.gameId, playerId: s.playerId },
         (res) => {
           if (rejoinTimer.current) clearTimeout(rejoinTimer.current);
+          if (!alive.current || leaving.current || sessionRef.current?.gameId !== gameId) return;
           if (!res.ok) {
             setError(res.error);
             return;
@@ -179,7 +187,8 @@ export function GameScreen({ navigation }: Props) {
   useEffect(() => {
     const socket = getSocket();
     const onGame = (g: PublicGame) => applyGame(g);
-    const onChat = (msg: ChatMessage) => {
+    const onChat = (msg: ChatMessage & { gameId?: string }) => {
+      if (msg.gameId && sessionRef.current && msg.gameId !== sessionRef.current.gameId) return;
       absorbChat([msg], true);
       setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
     };
@@ -194,23 +203,62 @@ export function GameScreen({ navigation }: Props) {
     };
   }, [absorbChat, applyGame, rejoin]);
 
+  const resetBoard = () => {
+    pendingMoveRef.current = null;
+    revisionRef.current = 0;
+    chatHydrated.current = false;
+    seenChatIds.current = new Set();
+    hasGameRef.current = false;
+    sharePrompted.current = false;
+    askedFlag.current = false;
+    clockSeen.current = { at: 0, whiteMs: 0, blackMs: 0, turn: 'w', active: false, key: '' };
+    elapsedSeen.current = { at: 0, gameMs: 0, whiteMs: 0, blackMs: 0, turn: 'w', active: false, key: '' };
+    setGame(null);
+    setMessages([]);
+    setError('');
+    setPromo(null);
+    setUnread(0);
+    setChatPreview(null);
+    setChatOpen(false);
+    chatOpenRef.current = false;
+    setMenuOpen(false);
+    setCopied(false);
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      leaving.current = false;
+      alive.current = true;
+      let cancelled = false;
+      void (async () => {
+        const s = await loadSession();
+        if (cancelled || leaving.current) return;
+        const wanted = route.params?.gameId;
+        if (!s || (wanted && s.gameId !== wanted)) {
+          setError('No match');
+          sessionRef.current = null;
+          setSession(null);
+          return;
+        }
+        const switching = loadedGameId.current !== null && loadedGameId.current !== s.gameId;
+        if (switching) resetBoard();
+        loadedGameId.current = s.gameId;
+        sessionRef.current = s;
+        setSession(s);
+        rejoin(switching);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [rejoin, route.params?.gameId]),
+  );
+
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const s = await loadSession();
-      if (cancelled) return;
-      if (!s) {
-        setError('No match');
-        return;
-      }
-      sessionRef.current = s;
-      setSession(s);
-      rejoin();
-    })();
+    alive.current = true;
     return () => {
-      cancelled = true;
+      alive.current = false;
     };
-  }, [rejoin]);
+  }, []);
 
   useEffect(() => {
     if (!session || Platform.OS !== 'web') return;
@@ -234,12 +282,6 @@ export function GameScreen({ navigation }: Props) {
     askedFlag.current = true;
     rejoin(false);
   }, [tick, game, rejoin]);
-
-  useFocusEffect(
-    useCallback(() => {
-      rejoin();
-    }, [rejoin]),
-  );
 
   useEffect(() => {
     const wake = () => {
@@ -423,9 +465,18 @@ export function GameScreen({ navigation }: Props) {
     }
   };
 
-  const leave = async () => {
-    await clearSession();
+  const backToGames = () => {
+    leaving.current = true;
+    parkHome();
+    navigation.popToTop();
+  };
+
+  const removeFromPhone = async () => {
+    leaving.current = true;
+    const id = sessionRef.current?.gameId;
+    if (id) await forgetSeat(id);
     sessionRef.current = null;
+    parkHome();
     navigation.popToTop();
   };
 
@@ -928,6 +979,7 @@ export function GameScreen({ navigation }: Props) {
         code={game.code}
         subtitle={game.status === 'waiting' ? 'Share this code' : undefined}
         items={[
+          { label: 'Your games', onPress: backToGames },
           { label: copied ? 'Invite copied' : 'Copy invite link', onPress: () => void copyInvite() },
           { label: 'Themes', onPress: () => navigation.navigate('Themes') },
           {
@@ -952,7 +1004,7 @@ export function GameScreen({ navigation }: Props) {
               ]
             : []),
           { label: 'Resign', onPress: resign, danger: true },
-          { label: 'End & leave', onPress: () => void leave(), danger: true },
+          { label: 'Remove from phone', onPress: () => void removeFromPhone(), danger: true },
         ]}
       />
     </SafeAreaView>

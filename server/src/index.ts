@@ -78,6 +78,10 @@ type ClientToServer = {
     payload: { gameId: string; playerId: string },
     cb: (res: { ok: true; game: PublicGame; color: PlayerColor } | { ok: false; error: string }) => void,
   ) => void;
+  myGames: (
+    payload: { seats: { gameId: string; playerId: string }[] },
+    cb: (res: { ok: true; games: GameSummary[] } | { ok: false; error: string }) => void,
+  ) => void;
   makeMove: (
     payload: { gameId: string; playerId: string; from: string; to: string; promotion?: string },
     cb: (res: { ok: true; game: PublicGame } | { ok: false; error: string }) => void,
@@ -111,8 +115,20 @@ type ClientToServer = {
 
 type ServerToClient = {
   gameUpdated: (game: PublicGame) => void;
-  chatMessage: (message: ChatMessage) => void;
+  chatMessage: (message: ChatMessage & { gameId: string }) => void;
   playerJoined: (payload: { color: PlayerColor; name: string }) => void;
+};
+
+type GameSummary = {
+  id: string;
+  code: string;
+  status: StoredGame['status'];
+  turn: PlayerColor;
+  yourColor: PlayerColor;
+  you: string;
+  opponent?: string;
+  result?: string;
+  updatedAt: number;
 };
 
 export type PublicGame = {
@@ -461,6 +477,14 @@ function emitGame(game: StoredGame) {
   io.to(game.id).emit('gameUpdated', pub);
 }
 
+/** One open board per socket, so another match cannot paint over this one. */
+function focusRoom(socket: Socket<ClientToServer, ServerToClient>, gameId: string) {
+  for (const room of socket.rooms) {
+    if (room !== socket.id && room !== gameId) socket.leave(room);
+  }
+  socket.join(gameId);
+}
+
 io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
   socket.on('createGame', async (payload, cb) => {
     try {
@@ -484,7 +508,7 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
         updatedAt: Date.now(),
         clock: clockFromChoice(payload.clockMs, Date.now()),
       };
-      socket.join(game.id);
+      focusRoom(socket, game.id);
       socketPlayer.set(socket.id, { gameId: game.id, playerId });
       await saveGame(game);
       cb({ ok: true, game: toPublic(game, connectedPlayersFor(game)), playerId, color });
@@ -520,7 +544,7 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
         if (seats.length === 1) {
           const seat = seats[0];
           const playerId = game.players[seat]!.id;
-          socket.join(game.id);
+          focusRoom(socket, game.id);
           socketPlayer.set(socket.id, { gameId: game.id, playerId });
           emitGame(game);
           cb({
@@ -550,7 +574,7 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
         cb({ ok: false, error: 'Could not join game' });
         return;
       }
-      socket.join(next.id);
+      focusRoom(socket, next.id);
       socketPlayer.set(socket.id, { gameId: next.id, playerId });
       io.to(next.id).emit('playerJoined', { color, name });
       emitGame(next);
@@ -572,13 +596,50 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
       cb({ ok: false, error: 'You are not a player in this game' });
       return;
     }
-    socket.join(game.id);
+    focusRoom(socket, game.id);
     socketPlayer.set(socket.id, { gameId: game.id, playerId: payload.playerId });
     // Read again so a move saved while this rejoin was in flight is what we send.
     const fresh = await settleTimeout((await loadGame(payload.gameId)) ?? game);
     const pub = toPublic(fresh, connectedPlayersFor(fresh));
     socket.emit('gameUpdated', pub);
     cb({ ok: true, game: pub, color });
+  });
+
+  socket.on('myGames', async (payload, cb) => {
+    try {
+      const seats = Array.isArray(payload?.seats) ? payload.seats.slice(0, 24) : [];
+      const found: GameSummary[] = [];
+      for (const seat of seats) {
+        if (!seat || typeof seat.gameId !== 'string' || typeof seat.playerId !== 'string') continue;
+        const game = await loadGame(seat.gameId);
+        if (!game) continue;
+        const color = colorOf(game, seat.playerId);
+        if (!color) continue;
+        let turn: PlayerColor = 'w';
+        try {
+          turn = new Chess(game.fen).turn();
+        } catch {
+          continue;
+        }
+        const opponent = color === 'w' ? game.players.b?.name : game.players.w?.name;
+        found.push({
+          id: game.id,
+          code: game.code,
+          status: game.status,
+          turn,
+          yourColor: color,
+          you: game.players[color]?.name || '',
+          opponent,
+          result: game.result,
+          updatedAt: game.updatedAt,
+        });
+      }
+      found.sort((a, b) => b.updatedAt - a.updatedAt);
+      cb({ ok: true, games: found });
+    } catch (err) {
+      console.error(err);
+      cb({ ok: false, error: 'Could not load your games' });
+    }
   });
 
   socket.on('makeMove', async (payload, cb) => {
@@ -748,7 +809,7 @@ io.on('connection', (socket: Socket<ClientToServer, ServerToClient>) => {
       next.chat = [...next.chat, message].slice(-200);
       next.updatedAt = Math.max(Date.now(), expected + 1);
       if (!(await saveGame(next, expected))) continue;
-      io.to(next.id).emit('chatMessage', message);
+      io.to(next.id).emit('chatMessage', { ...message, gameId: next.id });
       await notifySeat(otherPlayerId(next, color), player.name, text);
       cb({ ok: true });
       return;

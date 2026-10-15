@@ -1,6 +1,6 @@
 import { io, type Socket } from 'socket.io-client';
 import { Platform } from 'react-native';
-import type { PlayerColor, PublicGame, ChatMessage } from './types';
+import type { ChatMessage, GameSummary, PlayerColor, PublicGame } from './types';
 
 function resolveSocketUrl(): string {
   const fromEnv = process.env.EXPO_PUBLIC_SOCKET_URL?.trim();
@@ -29,6 +29,10 @@ type ClientToServer = {
   rejoinGame: (
     payload: { gameId: string; playerId: string },
     cb: (res: { ok: true; game: PublicGame; color: PlayerColor } | { ok: false; error: string }) => void,
+  ) => void;
+  myGames: (
+    payload: { seats: { gameId: string; playerId: string }[] },
+    cb: (res: { ok: true; games: GameSummary[] } | { ok: false; error: string }) => void,
   ) => void;
   makeMove: (
     payload: { gameId: string; playerId: string; from: string; to: string; promotion?: string },
@@ -59,7 +63,7 @@ type ClientToServer = {
 
 type ServerToClient = {
   gameUpdated: (game: PublicGame) => void;
-  chatMessage: (message: ChatMessage) => void;
+  chatMessage: (message: ChatMessage & { gameId?: string }) => void;
   playerJoined: (payload: { color: PlayerColor; name: string }) => void;
 };
 

@@ -16,7 +16,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { BackButton } from '../components/BackButton';
 import { useTheme, fontFamilyFor } from '../context/ThemeContext';
 import { clearInviteCodeFromUrl, getSocket } from '../lib/socket';
-import { loadDisplayName, loadSession, saveDisplayName, saveSession } from '../lib/session';
+import { loadDisplayName, loadRoster, saveDisplayName, saveSession } from '../lib/session';
 import { useKeyboardInset } from '../lib/useKeyboardInset';
 import type { RootStackParamList } from '../lib/types';
 
@@ -65,7 +65,7 @@ export function JoinScreen({ navigation, route }: Props) {
       name: trimmedName,
     });
     clearInviteCodeFromUrl();
-    navigation.replace('Game');
+    navigation.replace('Game', { gameId: res.game.id });
   };
 
   const joinWith = (trimmedName: string, trimmedCode: string) => {
@@ -98,11 +98,13 @@ export function JoinScreen({ navigation, route }: Props) {
     if (!inviteCode || autoJoinStarted.has(inviteCode)) return;
     autoJoinStarted.add(inviteCode);
     void (async () => {
-      const existing = await loadSession();
-      if (existing && existing.code.toUpperCase() === inviteCode) {
+      const seats = await loadRoster();
+      const match = seats.find((seat) => seat.code.toUpperCase() === inviteCode);
+      if (match) {
         autoJoinStarted.delete(inviteCode);
+        await saveSession(match);
         clearInviteCodeFromUrl();
-        navigation.replace('Game');
+        navigation.replace('Game', { gameId: match.gameId, resume: true });
         return;
       }
       const saved = (await loadDisplayName()).trim() || 'You';

@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { loadRoster } from './session';
 import { getSocket } from './socket';
 
 type PushKeys = { p256dh: string; auth: string };
@@ -27,7 +28,7 @@ function askConfig(): Promise<{ enabled: boolean; publicKey?: string }> {
   });
 }
 
-async function subscribe(session: { gameId: string; playerId: string }, publicKey: string) {
+async function browserSubscription(publicKey: string) {
   const registration = await navigator.serviceWorker.register('/sw.js');
   const existing = await registration.pushManager.getSubscription();
   const subscription =
@@ -39,14 +40,17 @@ async function subscribe(session: { gameId: string; playerId: string }, publicKe
   const json = subscription.toJSON();
   const keys = json.keys as PushKeys | undefined;
   if (!json.endpoint || !keys?.p256dh || !keys.auth) throw new Error('Could not subscribe');
-  await new Promise<void>((resolve, reject) => {
+  return { endpoint: json.endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } };
+}
+
+function saveSeat(
+  seat: { gameId: string; playerId: string },
+  subscription: { endpoint: string; keys: PushKeys },
+) {
+  return new Promise<void>((resolve, reject) => {
     getSocket().emit(
       'savePushSubscription',
-      {
-        gameId: session.gameId,
-        playerId: session.playerId,
-        subscription: { endpoint: json.endpoint!, keys: { p256dh: keys.p256dh, auth: keys.auth } },
-      },
+      { gameId: seat.gameId, playerId: seat.playerId, subscription },
       (res) => {
         if (res.ok) resolve();
         else reject(new Error(res.error));
@@ -55,16 +59,30 @@ async function subscribe(session: { gameId: string; playerId: string }, publicKe
   });
 }
 
-/** Subscribe again when the phone already allowed alerts. */
-export async function resumeMoveAlerts(session: { gameId: string; playerId: string }): Promise<boolean> {
-  if (Platform.OS !== 'web' || typeof Notification === 'undefined' || !('serviceWorker' in navigator)) return false;
+/** One browser subscription, saved for every game on this phone. */
+async function subscribeSeats(seats: { gameId: string; playerId: string }[], publicKey: string) {
+  if (seats.length === 0) return;
+  const subscription = await browserSubscription(publicKey);
+  await Promise.all(seats.map((seat) => saveSeat(seat, subscription)));
+}
+
+function alertsAvailable() {
+  return Platform.OS === 'web' && typeof Notification !== 'undefined' && 'serviceWorker' in navigator;
+}
+
+/** Subscribe again when the phone already allowed alerts. Covers every saved game. */
+export async function resumeMoveAlerts(session?: { gameId: string; playerId: string }): Promise<boolean> {
+  if (!alertsAvailable()) return false;
   if (Notification.permission !== 'granted') return false;
   if (isIos() && !isStandalone()) return false;
   try {
     const config = await askConfig();
     if (!config.enabled || !config.publicKey) return false;
-    await subscribe(session, config.publicKey);
-    return true;
+    const roster = await loadRoster();
+    const seats = session ? [session, ...roster.filter((seat) => seat.playerId !== session.playerId)] : roster;
+    const unique = seats.filter((seat, index) => seats.findIndex((other) => other.playerId === seat.playerId) === index);
+    await subscribeSeats(unique, config.publicKey);
+    return unique.length > 0;
   } catch {
     return false;
   }
@@ -72,7 +90,7 @@ export async function resumeMoveAlerts(session: { gameId: string; playerId: stri
 
 /** Ask for alerts. Must run from a tap. */
 export async function enableMoveAlerts(session: { gameId: string; playerId: string }): Promise<string> {
-  if (Platform.OS !== 'web' || typeof Notification === 'undefined' || !('serviceWorker' in navigator)) {
+  if (!alertsAvailable()) {
     return 'Alerts are available in the phone browser.';
   }
   if (isIos() && !isStandalone()) {
@@ -83,7 +101,10 @@ export async function enableMoveAlerts(session: { gameId: string; playerId: stri
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') return 'Alerts are blocked in the browser settings.';
   try {
-    await subscribe(session, config.publicKey);
+    const roster = await loadRoster();
+    const seats = [session, ...roster.filter((seat) => seat.playerId !== session.playerId)];
+    const unique = seats.filter((seat, index) => seats.findIndex((other) => other.playerId === seat.playerId) === index);
+    await subscribeSeats(unique, config.publicKey);
     return '';
   } catch {
     return 'Could not turn alerts on.';
